@@ -17,7 +17,11 @@
     "react-dropzone": "^14.2.3",
     "lucide-react": "^0.379.0",
     "clsx": "^2.1.1",
-    "tailwind-merge": "^2.3.0"
+    "tailwind-merge": "^2.3.0",
+    "reactflow": "^11.11.0",
+    "socket.io-client": "^4.7.2",
+    "zustand": "^4.4.1",
+    "framer-motion": "^10.16.16"
   },
   "devDependencies": {
     "@types/node": "^20",
