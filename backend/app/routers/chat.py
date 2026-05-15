@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.config import UPLOAD_DIR, ANTHROPIC_API_KEY
+from app.config import UPLOAD_DIR, GROQ_API_KEY
 
 router = APIRouter()
 
@@ -68,15 +68,18 @@ def _build_dataset_context(df: pd.DataFrame) -> str:
     )
 
 
-async def _stream_claude(question: str, context: str) -> AsyncGenerator[str, None]:
-    if not ANTHROPIC_API_KEY:
-        yield "data: " + json.dumps({"error": "ANTHROPIC_API_KEY not configured"}) + "\n\n"
+async def _stream_groq(question: str, context: str) -> AsyncGenerator[str, None]:
+    if not GROQ_API_KEY:
+        yield "data: " + json.dumps({"error": "GROQ_API_KEY not configured"}) + "\n\n"
         return
 
     try:
-        import anthropic
+        from openai import AsyncOpenAI
 
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        client = AsyncOpenAI(
+            api_key=GROQ_API_KEY,
+            base_url="https://api.groq.com/openai/v1"
+        )
         system_prompt = (
             "You are DataMind OS, an expert AI data analyst. "
             "You analyze datasets and answer questions clearly and concisely. "
@@ -85,18 +88,24 @@ async def _stream_claude(question: str, context: str) -> AsyncGenerator[str, Non
         )
         user_message = f"{context}\n\nUser question: {question}"
 
-        with client.messages.stream(
-            model="claude-sonnet-4-20250514",
+        stream = await client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
             max_tokens=2048,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
-        ) as stream:
-            for text in stream.text_stream:
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ],
+            stream=True,
+        )
+        
+        async for chunk in stream:
+            if chunk.choices[0].delta.content:
+                text = chunk.choices[0].delta.content
                 yield "data: " + json.dumps({"content": text}) + "\n\n"
 
         yield "data: " + json.dumps({"done": True}) + "\n\n"
     except Exception as exc:
-        yield "data: " + json.dumps({"error": str(exc)}) + "\n\n"
+        yield "data: " + json.dumps({"error": "An error occurred while processing your request"}) + "\n\n"
 
 
 @router.post("/chat")
@@ -105,7 +114,7 @@ async def chat(request: ChatRequest):
     context = _build_dataset_context(df)
 
     return StreamingResponse(
-        _stream_claude(request.question, context),
+        _stream_groq(request.question, context),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
