@@ -74,7 +74,7 @@ async def _stream_groq(question: str, context: str) -> AsyncGenerator[str, None]
         return
 
     try:
-        from openai import OpenAI, AsyncOpenAI
+        from openai import AsyncOpenAI
 
         client = AsyncOpenAI(
             api_key=GROQ_API_KEY,
@@ -91,8 +91,10 @@ async def _stream_groq(question: str, context: str) -> AsyncGenerator[str, None]
         stream = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             max_tokens=2048,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ],
             stream=True,
         )
         
@@ -103,7 +105,7 @@ async def _stream_groq(question: str, context: str) -> AsyncGenerator[str, None]
 
         yield "data: " + json.dumps({"done": True}) + "\n\n"
     except Exception as exc:
-        yield "data: " + json.dumps({"error": str(exc)}) + "\n\n"
+        yield "data: " + json.dumps({"error": "An error occurred while processing your request"}) + "\n\n"
 
 
 @router.post("/chat")
