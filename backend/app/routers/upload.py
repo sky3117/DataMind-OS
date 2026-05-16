@@ -1,7 +1,6 @@
 import os
 import uuid
 import shutil
-import mimetypes
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse

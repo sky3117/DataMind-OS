@@ -152,7 +152,7 @@ export default function FileUploader({ onUpload }: FileUploaderProps) {
   });
 
   const isDisabled = uploading || (queueState?.isProcessing ?? false);
-  const queuedUploads = (queueState?.queueSize ?? 0) - (uploading ? 1 : 0);
+  const queuedUploads = queueState?.queueSize ?? 0;
 
   return (
     <div className="w-full">

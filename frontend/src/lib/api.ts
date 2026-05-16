@@ -5,6 +5,7 @@ const DEFAULT_TIMEOUT_MS = 30000; // 30 seconds
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 const BACKOFF_MULTIPLIER = 2;
+const MAX_ACTIVITIES_LIMIT = 100;
 
 // Utility: Create a timeout promise
 function createTimeoutPromise(ms: number): Promise<never> {
@@ -853,7 +854,7 @@ export async function getActivities(
     const params = new URLSearchParams();
     if (resourceType) params.append('resource_type', resourceType);
     if (resourceId) params.append('resource_id', resourceId);
-    params.append('limit', Math.min(limit, 100).toString());
+    params.append('limit', Math.min(limit, MAX_ACTIVITIES_LIMIT).toString());
 
     const res = await fetchWithTimeoutAndRetry(
       `${API_BASE}/api/collaboration/activities?${params}`,

@@ -38,7 +38,7 @@ class UploadQueue {
     execute: () => Promise<void>,
     priority: number = 0
   ): string {
-    const id = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const id = `upload_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     const task: UploadTask = {
       id,
       file,
@@ -163,8 +163,10 @@ class UploadQueue {
    */
   clearQueue(): void {
     this.queue = [];
+    // Clear the pending timeout
     if (this.uploadTimeout) {
       clearTimeout(this.uploadTimeout);
+      this.uploadTimeout = null;
     }
     this.notifyListeners();
   }
