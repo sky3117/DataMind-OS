@@ -12,12 +12,14 @@ import {
   Waves,
 } from 'lucide-react';
 import type { CleanerAnalysisResponse, CleanerSuggestion } from '@/types';
+import { useGlobalContext } from '@/context/GlobalContext';
 
 interface AgentsPageProps {
   fileId?: string;
 }
 
 export default function AgentsPage({ fileId }: AgentsPageProps) {
+  const { addNotification } = useGlobalContext();
   const [activeAgent, setActiveAgent] = useState<string>('cleaner');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<unknown | null>(null);
@@ -53,7 +55,7 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
 
   const runAgent = async () => {
     if (!fileId) {
-      alert('Please upload a file first');
+      addNotification('Please upload a file first', 'warning');
       return;
     }
 
@@ -78,7 +80,7 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
           );
           break;
         case 'predictor':
-          alert('Predictor requires additional configuration');
+          addNotification('Predictor requires additional configuration', 'info');
           return;
         default:
           return;
@@ -87,7 +89,7 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
       setResults(result);
     } catch (error) {
       console.error('Agent execution failed:', error);
-      alert('Agent execution failed');
+      addNotification('Agent execution failed', 'error');
     } finally {
       setLoading(false);
     }
@@ -123,11 +125,13 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
     setApplyingSuggestionId(suggestionId);
     try {
       const api = await import('@/lib/api');
-      await api.applyCleanerSuggestions(fileId, [suggestionId], true);
+      const autoFix = true;
+      await api.applyCleanerSuggestions(fileId, [suggestionId], autoFix);
       setSuggestionStatus((prev) => ({ ...prev, [suggestionId]: 'applied' }));
+      addNotification('Suggestion applied', 'success');
     } catch (error) {
       console.error('Failed to apply cleaner suggestion:', error);
-      alert('Failed to apply suggestion');
+      addNotification('Failed to apply suggestion', 'error');
     } finally {
       setApplyingSuggestionId(null);
     }
@@ -193,7 +197,7 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
                     <p className="text-slate-300">No cleaning suggestions found.</p>
                   ) : (
                     cleanerResults.suggestions.map((suggestion) => {
-                      const IssueIcon = issueIcons[suggestion.issue_type] ?? AlertTriangle;
+                      const IssueIcon = issueIcons[suggestion.issue_type];
                       const status = suggestionStatus[suggestion.id];
                       const isApplied = status === 'applied';
                       const isSkipped = status === 'skipped';
