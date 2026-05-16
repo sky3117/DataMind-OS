@@ -222,67 +222,123 @@ export async function* streamChat(
     throw new Error('Question cannot be empty');
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS * 2); // Double timeout for streaming
+
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS * 2); // Double timeout for streaming
+    const res = await fetch(`${API_BASE}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_id: fileId, question }),
+      signal: controller.signal,
+    });
 
-    try {
-      const res = await fetch(`${API_BASE}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_id: fileId, question }),
-        signal: controller.signal,
-      });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      const detail = typeof err === 'object' && err !== null && 'detail' in err
+        ? String(err.detail)
+        : `Chat request failed with status ${res.status}`;
+      throw new Error(detail);
+    }
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        const detail = typeof err === 'object' && err !== null && 'detail' in err
-          ? String(err.detail)
-          : `Chat request failed with status ${res.status}`;
-        throw new Error(detail);
-      }
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error('No response body');
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No response body');
+    const decoder = new TextDecoder();
+    let buffer = '';
 
-      const decoder = new TextDecoder();
-      let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      // Decode the chunk and add to buffer
+      buffer += decoder.decode(value, { stream: true });
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
+      // Split by double newline to get complete SSE events
+      // SSE format: data: {...}\n\n
+      const events = buffer.split('\n\n');
+      
+      // Keep the last incomplete event in the buffer
+      buffer = events.pop() ?? '';
 
-        for (const line of lines) {
+      // Process each complete event
+      for (const event of events) {
+        // Skip empty events
+        if (!event.trim()) continue;
+
+        // Process each line in the event
+        for (const line of event.split('\n')) {
           if (line.startsWith('data: ')) {
             const raw = line.slice(6).trim();
             if (!raw) continue;
+
             try {
               const parsed = JSON.parse(raw) as {
                 content?: string;
                 done?: boolean;
                 error?: string;
               };
-              if (parsed.error) throw new Error(parsed.error);
-              if (parsed.done) return;
-              if (parsed.content) yield parsed.content;
-            } catch (e) {
-              if (e instanceof Error && e.message !== raw) throw e;
+
+              if (parsed.error) {
+                throw new Error(parsed.error);
+              }
+
+              if (parsed.done) {
+                return;
+              }
+
+              if (parsed.content) {
+                yield parsed.content;
+              }
+            } catch (parseError) {
+              // Only throw if it's not a JSON parse error on the raw data
+              if (parseError instanceof SyntaxError) {
+                console.warn('Failed to parse SSE data:', raw, parseError);
+                continue;
+              }
+              throw parseError;
             }
           }
         }
       }
-    } finally {
-      clearTimeout(timeoutId);
+    }
+
+    // Final flush - process any remaining data in buffer
+    if (buffer.trim()) {
+      for (const line of buffer.split('\n')) {
+        if (line.startsWith('data: ')) {
+          const raw = line.slice(6).trim();
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw) as {
+                content?: string;
+                done?: boolean;
+                error?: string;
+              };
+
+              if (parsed.error) {
+                throw new Error(parsed.error);
+              }
+
+              if (!parsed.done && parsed.content) {
+                yield parsed.content;
+              }
+            } catch (parseError) {
+              if (!(parseError instanceof SyntaxError)) {
+                throw parseError;
+              }
+            }
+          }
+        }
+      }
     }
   } catch (error) {
     if (error instanceof Error) {
       throw error;
     }
     throw new Error('Chat request failed: Unknown error');
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
