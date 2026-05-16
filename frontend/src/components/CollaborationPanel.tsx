@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Users, MessageSquare, Share2, Activity, Send, Wifi, WifiOff } from 'lucide-react';
 import { WS_BASE_URL } from '@/lib/config';
 
@@ -24,19 +24,7 @@ export default function CollaborationPanel({
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
-  useEffect(() => {
-    loadComments();
-    loadActivities();
-    connectWebSocket();
-
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
-  }, [resourceId]);
-
-  const connectWebSocket = () => {
+  const connectWebSocket = useCallback(() => {
     try {
       const wsUrl = `${WS_BASE_URL}/api/ws/collaboration/${resourceId}`;
       const ws = new WebSocket(wsUrl);
@@ -73,9 +61,9 @@ export default function CollaborationPanel({
     } catch (error) {
       console.error('Failed to connect WebSocket:', error);
     }
-  };
+  }, [resourceId]);
 
-  const loadComments = async () => {
+  const loadComments = useCallback(async () => {
     try {
       const { getComments } = await import('@/lib/api');
       const result = await getComments(resourceType, resourceId);
@@ -83,9 +71,9 @@ export default function CollaborationPanel({
     } catch (error) {
       console.error('Failed to load comments:', error);
     }
-  };
+  }, [resourceType, resourceId]);
 
-  const loadActivities = async () => {
+  const loadActivities = useCallback(async () => {
     try {
       const { getActivities } = await import('@/lib/api');
       const result = await getActivities(resourceType, resourceId, 20);
@@ -93,7 +81,19 @@ export default function CollaborationPanel({
     } catch (error) {
       console.error('Failed to load activities:', error);
     }
-  };
+  }, [resourceType, resourceId]);
+
+  useEffect(() => {
+    loadComments();
+    loadActivities();
+    connectWebSocket();
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [resourceId, loadComments, loadActivities, connectWebSocket]);
 
   const addComment = async () => {
     if (!newComment.trim()) return;
