@@ -108,7 +108,19 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
 
   const isCleanerResult = (value: unknown): value is CleanerAnalysisResponse => {
     if (!value || typeof value !== 'object') return false;
-    return Array.isArray((value as CleanerAnalysisResponse).suggestions);
+    const suggestions = (value as CleanerAnalysisResponse).suggestions;
+    return Array.isArray(suggestions) && suggestions.every((item) => {
+      if (!item || typeof item !== 'object') return false;
+      const suggestion = item as Partial<CleanerSuggestion>;
+      return (
+        typeof suggestion.id === 'string' &&
+        typeof suggestion.column === 'string' &&
+        typeof suggestion.issue_type === 'string' &&
+        typeof suggestion.description === 'string' &&
+        typeof suggestion.severity === 'string' &&
+        typeof suggestion.suggested_action === 'string'
+      );
+    });
   };
 
   const severityClasses: Record<CleanerSuggestion['severity'], string> = {
@@ -131,12 +143,14 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
     inconsistent_format: Type,
   };
 
-  const handleApplyFix = async (suggestionId: string, autoFix: boolean = true) => {
+  const handleApplyFix = async (suggestionId: string) => {
     if (!fileId) return;
     setApplyingSuggestionId(suggestionId);
     try {
       const api = await import('@/lib/api');
-      await api.applyCleanerSuggestions(fileId, [suggestionId], autoFix);
+      const autoFixEnabled = true;
+      // Apply Fix should trigger backend auto-fix behavior for the selected suggestion.
+      await api.applyCleanerSuggestions(fileId, [suggestionId], autoFixEnabled);
       setSuggestionStatus((prev) => ({ ...prev, [suggestionId]: 'applied' }));
       addNotification('Suggestion applied', 'success');
     } catch (error) {
@@ -225,7 +239,10 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
                                 {issueLabels[suggestion.issue_type]} • {suggestion.column}
                               </h3>
                             </div>
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${severityClasses[suggestion.severity]}`}>
+                            <span
+                              aria-label={`Severity: ${suggestion.severity}`}
+                              className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${severityClasses[suggestion.severity]}`}
+                            >
                               {suggestion.severity}
                             </span>
                           </div>
