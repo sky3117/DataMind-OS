@@ -136,7 +136,7 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
 
           {!results && !loading && (
             <p className="text-gray-500 text-center py-8">
-              Click "Run Agent" to analyze your data
+              Click &quot;Run Agent&quot; to analyze your data
             </p>
           )}
 

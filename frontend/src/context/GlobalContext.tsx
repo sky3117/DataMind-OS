@@ -123,8 +123,9 @@ export function GlobalProvider({ children }: { children: React.ReactNode }) {
 
   // Cleanup timeouts on unmount
   useEffect(() => {
+    const timeoutRefs = timeoutRefsRef.current;
     return () => {
-      Object.values(timeoutRefsRef.current).forEach(clearTimeout);
+      Object.values(timeoutRefs).forEach(clearTimeout);
     };
   }, []);
 

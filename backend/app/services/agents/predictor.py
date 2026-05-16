@@ -5,7 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.metrics import accuracy_score, f1_score, mean_squared_error
 import logging
-import json
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +14,7 @@ class PredictorAgent:
     """Train and make predictions with ML models."""
 
     _models = {}
+    _model_features = {}
 
     @staticmethod
     async def train_model(
@@ -28,6 +29,8 @@ class PredictorAgent:
 
         if target_column not in df.columns:
             raise ValueError(f"Target column '{target_column}' not found in data")
+        if model_type not in ("classification", "regression"):
+            raise ValueError("model_type must be either 'classification' or 'regression'")
 
         missing_features = [f for f in features if f not in df.columns]
         if missing_features:
@@ -49,8 +52,9 @@ class PredictorAgent:
             accuracy = accuracy_score(y_test, y_pred)
             f1 = f1_score(y_test, y_pred, average="weighted", zero_division=0)
 
-            model_id = f"model_clf_{hash(str(features)) % 10000}"
+            model_id = f"model_clf_{uuid4().hex[:12]}"
             PredictorAgent._models[model_id] = model
+            PredictorAgent._model_features[model_id] = features
 
             return {
                 "model_id": model_id,
@@ -73,8 +77,9 @@ class PredictorAgent:
             y_pred = model.predict(X_test)
             rmse = np.sqrt(mean_squared_error(y_test, y_pred))
 
-            model_id = f"model_reg_{hash(str(features)) % 10000}"
+            model_id = f"model_reg_{uuid4().hex[:12]}"
             PredictorAgent._models[model_id] = model
+            PredictorAgent._model_features[model_id] = features
 
             return {
                 "model_id": model_id,
@@ -100,8 +105,22 @@ class PredictorAgent:
             raise ValueError(f"Model '{model_id}' not found")
 
         model = PredictorAgent._models[model_id]
+        expected_features = PredictorAgent._model_features.get(model_id, [])
 
         input_df = pd.DataFrame(input_data)
+        if input_df.empty:
+            raise ValueError("input_data must contain at least one row")
+
+        missing_features = [feature for feature in expected_features if feature not in input_df.columns]
+        if missing_features:
+            raise ValueError(f"Missing required input features: {missing_features}")
+
+        extra_features = [feature for feature in input_df.columns if feature not in expected_features]
+        if extra_features:
+            raise ValueError(f"Unexpected input features: {extra_features}")
+
+        input_df = input_df[expected_features]
+        input_df = input_df.fillna(input_df.mean(numeric_only=True))
         predictions = model.predict(input_df)
 
         if hasattr(model, "predict_proba"):
