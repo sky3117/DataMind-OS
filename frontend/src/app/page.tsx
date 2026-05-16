@@ -40,7 +40,7 @@ export default function HomePage() {
               <div>
                 <span className="text-lg font-bold text-slate-100">DataMind OS</span>
                 <span className="ml-2 text-xs text-indigo-400 bg-indigo-950/50 border border-indigo-800/50 px-2 py-0.5 rounded-full">
-                  MVP
+                  Phase 2
                 </span>
               </div>
             </div>
@@ -65,8 +65,8 @@ export default function HomePage() {
               AI-Powered Data Intelligence
             </h1>
             <p className="text-lg text-slate-400 max-w-2xl mx-auto">
-              Upload your dataset and instantly get deep insights, AI-powered analysis, and
-              beautiful auto-generated dashboards.
+              Upload your dataset and instantly get deep insights, AI-powered analysis, 
+              build visual pipelines, and collaborate with your team.
             </p>
           </div>
         )}

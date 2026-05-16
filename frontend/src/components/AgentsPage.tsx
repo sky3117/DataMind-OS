@@ -10,7 +10,7 @@ interface AgentsPageProps {
 export default function AgentsPage({ fileId }: AgentsPageProps) {
   const [activeAgent, setActiveAgent] = useState<string>('cleaner');
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<Record<string, unknown> | null>(null);
+  const [results, setResults] = useState<any | null>(null);
 
   const agents = [
     {
