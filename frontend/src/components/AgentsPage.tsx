@@ -1,16 +1,41 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Brain, RefreshCw, Download, Sparkles } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  AlertTriangle,
+  Brain,
+  Copy,
+  Download,
+  RefreshCw,
+  Sparkles,
+  Type,
+  Waves,
+} from 'lucide-react';
+import type {
+  AnalystInsightsResponse,
+  CleanerAnalysisResponse,
+  CleanerSuggestion,
+  ReporterGenerateResponse,
+} from '@/types';
+import { useGlobalContext } from '@/context/GlobalContext';
 
 interface AgentsPageProps {
   fileId?: string;
 }
 
+type AgentResult =
+  | CleanerAnalysisResponse
+  | AnalystInsightsResponse
+  | ReporterGenerateResponse
+  | Record<string, unknown>;
+
 export default function AgentsPage({ fileId }: AgentsPageProps) {
+  const { addNotification } = useGlobalContext();
   const [activeAgent, setActiveAgent] = useState<string>('cleaner');
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<any | null>(null);
+  const [results, setResults] = useState<AgentResult | null>(null);
+  const [applyingSuggestionId, setApplyingSuggestionId] = useState<string | null>(null);
+  const [suggestionStatus, setSuggestionStatus] = useState<Record<string, 'applied' | 'skipped'>>({});
 
   const agents = [
     {
@@ -41,11 +66,12 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
 
   const runAgent = async () => {
     if (!fileId) {
-      alert('Please upload a file first');
+      addNotification('Please upload a file first', 'warning');
       return;
     }
 
     setLoading(true);
+    setSuggestionStatus({});
     try {
       const api = await import('@/lib/api');
 
@@ -65,7 +91,7 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
           );
           break;
         case 'predictor':
-          alert('Predictor requires additional configuration');
+          addNotification('Predictor requires additional configuration', 'info');
           return;
         default:
           return;
@@ -74,21 +100,80 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
       setResults(result);
     } catch (error) {
       console.error('Agent execution failed:', error);
-      alert('Agent execution failed');
+      addNotification('Agent execution failed', 'error');
     } finally {
       setLoading(false);
     }
   };
 
+  const isCleanerResult = (value: unknown): value is CleanerAnalysisResponse => {
+    if (!value || typeof value !== 'object') return false;
+    const suggestions = (value as CleanerAnalysisResponse).suggestions;
+    return Array.isArray(suggestions) && suggestions.every((item) => {
+      if (!item || typeof item !== 'object') return false;
+      const suggestion = item as Partial<CleanerSuggestion>;
+      return (
+        typeof suggestion.id === 'string' &&
+        typeof suggestion.column === 'string' &&
+        typeof suggestion.issue_type === 'string' &&
+        typeof suggestion.description === 'string' &&
+        typeof suggestion.severity === 'string' &&
+        typeof suggestion.suggested_action === 'string'
+      );
+    });
+  };
+
+  const severityClasses: Record<CleanerSuggestion['severity'], string> = {
+    high: 'bg-red-500/20 text-red-300 border border-red-500/40',
+    medium: 'bg-amber-500/20 text-amber-300 border border-amber-500/40',
+    low: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40',
+  };
+
+  const issueLabels: Record<CleanerSuggestion['issue_type'], string> = {
+    missing_values: 'Missing Values',
+    duplicates: 'Duplicates',
+    outliers: 'Outliers',
+    inconsistent_format: 'Inconsistent Format',
+  };
+
+  const issueIcons: Record<CleanerSuggestion['issue_type'], React.ElementType> = {
+    missing_values: Waves,
+    duplicates: Copy,
+    outliers: AlertTriangle,
+    inconsistent_format: Type,
+  };
+
+  const primaryActionButtonClasses =
+    'px-3 py-1.5 text-xs font-medium rounded bg-blue-600 border border-blue-500/50 text-slate-100 hover:bg-blue-500 disabled:bg-slate-700 disabled:border-slate-600 disabled:text-slate-400';
+
+  const handleApplyFix = async (suggestionId: string) => {
+    if (!fileId) return;
+    setApplyingSuggestionId(suggestionId);
+    try {
+      const api = await import('@/lib/api');
+      await api.applyCleanerSuggestions(fileId, [suggestionId], true);
+      setSuggestionStatus((prev) => ({ ...prev, [suggestionId]: 'applied' }));
+      addNotification('Suggestion applied', 'success');
+    } catch (error) {
+      console.error('Failed to apply cleaner suggestion:', error);
+      addNotification('Failed to apply suggestion', 'error');
+    } finally {
+      setApplyingSuggestionId(null);
+    }
+  };
+
+  const cleanerResults = isCleanerResult(results) ? results : null;
+  const hasResults = results !== null;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+    <div className="min-h-screen bg-slate-950 p-6">
       <div className="max-w-6xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+          <h1 className="text-3xl font-bold text-slate-100 flex items-center gap-3">
             <Brain className="text-blue-600" size={32} />
             AI Agents
           </h1>
-          <p className="text-gray-600 mt-2">
+          <p className="text-slate-300 mt-2">
             Harness the power of specialized AI agents to analyze, clean, and derive insights from your data
           </p>
         </div>
@@ -100,42 +185,105 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
               onClick={() => setActiveAgent(agent.id)}
               className={`p-4 rounded-lg border-2 transition-all text-left ${
                 activeAgent === agent.id
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-200 bg-white hover:border-blue-300'
+                  ? 'border-indigo-500 bg-indigo-950/30'
+                  : 'border-slate-700 bg-slate-900 text-slate-200 hover:border-indigo-400'
               }`}
             >
               <div className="text-3xl mb-2">{agent.icon}</div>
-              <h3 className="font-semibold text-gray-900">{agent.name}</h3>
-              <p className="text-xs text-gray-600 mt-1">{agent.description}</p>
+              <h3 className="font-semibold text-slate-100">{agent.name}</h3>
+              <p className="text-xs text-slate-300 mt-1">{agent.description}</p>
             </button>
           ))}
         </div>
 
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">
+            <h2 className="text-xl font-semibold text-slate-100">
               {agents.find((a) => a.id === activeAgent)?.name}
             </h2>
             <button
               onClick={runAgent}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 border border-blue-500/50 text-slate-100 rounded hover:bg-blue-500 disabled:bg-slate-700 disabled:border-slate-600 disabled:text-slate-400"
             >
               <Sparkles size={16} />
               {loading ? 'Processing...' : 'Run Agent'}
             </button>
           </div>
 
-          {results && (
-            <div className="bg-gray-50 rounded p-4 max-h-96 overflow-y-auto">
-              <pre className="text-xs font-mono whitespace-pre-wrap break-words">
-                {JSON.stringify(results, null, 2)}
-              </pre>
+          {hasResults && (
+            <div className="bg-slate-900 border border-slate-800 rounded p-4 max-h-96 overflow-y-auto">
+              {activeAgent === 'cleaner' && cleanerResults ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-300">
+                    Health Score: <span className="text-slate-100 font-semibold">{cleanerResults.overall_health_score}</span>
+                  </p>
+                  {cleanerResults.suggestions.length === 0 ? (
+                    <p className="text-slate-300">No cleaning suggestions found.</p>
+                  ) : (
+                    cleanerResults.suggestions.map((suggestion) => {
+                      const IssueIcon = issueIcons[suggestion.issue_type];
+                      const status = suggestionStatus[suggestion.id];
+                      const isApplied = status === 'applied';
+                      const isSkipped = status === 'skipped';
+                      const isProcessed = isApplied || isSkipped;
+
+                      return (
+                        <div
+                          key={suggestion.id}
+                          className="rounded-lg bg-slate-900 border border-slate-700 p-4 text-slate-200"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <IssueIcon className="text-indigo-300" size={18} />
+                              <h3 className="font-semibold text-slate-100">
+                                {issueLabels[suggestion.issue_type]} • {suggestion.column}
+                              </h3>
+                            </div>
+                            <span
+                              aria-label={`Severity: ${suggestion.severity}`}
+                              className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${severityClasses[suggestion.severity]}`}
+                            >
+                              {suggestion.severity}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm text-slate-300">{suggestion.description}</p>
+                          <code className="mt-3 block rounded bg-slate-800 text-slate-200 px-3 py-2 text-xs">
+                            Suggested fix: {suggestion.suggested_action}
+                          </code>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              onClick={() => handleApplyFix(suggestion.id)}
+                              disabled={isProcessed || applyingSuggestionId === suggestion.id}
+                              className={primaryActionButtonClasses}
+                            >
+                              {isApplied ? 'Applied' : applyingSuggestionId === suggestion.id ? 'Applying...' : 'Apply Fix'}
+                            </button>
+                            <button
+                              onClick={() =>
+                                setSuggestionStatus((prev) => ({ ...prev, [suggestion.id]: 'skipped' }))
+                              }
+                              disabled={isProcessed}
+                              className="px-3 py-1.5 text-xs font-medium rounded bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 disabled:bg-slate-800/70 disabled:text-slate-500"
+                            >
+                              {isSkipped ? 'Skipped' : 'Skip'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              ) : (
+                <pre className="bg-slate-800 text-slate-200 rounded p-3 text-xs font-mono whitespace-pre-wrap break-words">
+                  {JSON.stringify(results, null, 2)}
+                </pre>
+              )}
             </div>
           )}
 
           {!results && !loading && (
-            <p className="text-gray-500 text-center py-8">
+            <p className="text-slate-300 text-center py-8">
               Click &quot;Run Agent&quot; to analyze your data
             </p>
           )}
@@ -143,13 +291,13 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
           {loading && (
             <div className="flex items-center justify-center py-8">
               <RefreshCw className="animate-spin text-blue-600" size={24} />
-              <span className="ml-2 text-gray-600">Processing...</span>
+              <span className="ml-2 text-slate-300">Processing...</span>
             </div>
           )}
         </div>
 
-        {results && (
-          <button className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+        {hasResults && (
+          <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 border border-blue-500/50 text-slate-100 rounded hover:bg-blue-500">
             <Download size={16} />
             Download Results
           </button>
