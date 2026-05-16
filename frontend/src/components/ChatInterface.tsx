@@ -87,10 +87,43 @@ export default function ChatInterface({ fileId, filename }: ChatInterfaceProps) 
 
     try {
       const trimmedQuestion = question.trim();
+      const chatHistory = messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+
+      const appendAssistantChunk = (chunk: string) => {
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last.role === 'assistant') {
+            updated[updated.length - 1] = { ...last, content: last.content + chunk };
+          }
+          return updated;
+        });
+      };
+
+      const parseSsePayload = (raw: string): { content?: string; error?: string; done?: boolean } | null => {
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          if (!parsed || typeof parsed !== 'object') return null;
+          const payload = parsed as Record<string, unknown>;
+
+          return {
+            content: typeof payload.content === 'string' ? payload.content : undefined,
+            error: typeof payload.error === 'string' ? payload.error : undefined,
+            done: payload.done === true ? true : undefined,
+          };
+        } catch (parseError) {
+          console.warn('Failed to parse SSE payload:', raw, parseError);
+          return null;
+        }
+      };
+
       const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_id: fileId, question: trimmedQuestion, chat_history: [] }),
+        body: JSON.stringify({ file_id: fileId, question: trimmedQuestion, chat_history: chatHistory }),
       });
 
       if (!response.ok) {
@@ -109,9 +142,9 @@ export default function ChatInterface({ fileId, filename }: ChatInterfaceProps) 
       const decoder = new TextDecoder();
       let buffer = '';
       let streamError: string | null = null;
-      let streamDone = false;
+      let stopStreaming = false;
 
-      while (true) {
+      while (!stopStreaming) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -125,59 +158,35 @@ export default function ChatInterface({ fileId, filename }: ChatInterfaceProps) 
           const raw = line.slice(6).trim();
           if (!raw) continue;
 
-          try {
-            const data = JSON.parse(raw) as { content?: string; error?: string; done?: boolean };
+          const data = parseSsePayload(raw);
+          if (!data) continue;
 
-            if (data.error) {
-              streamError = data.error;
-              break;
-            }
-
-            if (data.content) {
-              setMessages((prev) => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last.role === 'assistant') {
-                  updated[updated.length - 1] = { ...last, content: last.content + data.content };
-                }
-                return updated;
-              });
-            }
-
-            if (data.done) {
-              streamDone = true;
-              break;
-            }
-          } catch (parseError) {
-            console.warn('Failed to parse SSE line:', raw, parseError);
-            continue;
+          if (data.error) {
+            streamError = data.error;
+            stopStreaming = true;
+            break;
           }
-        }
 
-        if (streamError || streamDone) {
-          break;
+          if (data.content) {
+            appendAssistantChunk(data.content);
+          }
+
+          if (data.done) {
+            stopStreaming = true;
+            break;
+          }
         }
       }
 
-      if (!streamError && buffer.trim().startsWith('data: ')) {
-        const raw = buffer.trim().slice(6).trim();
+      const trimmedBuffer = buffer.trim();
+      if (!streamError && trimmedBuffer.startsWith('data: ')) {
+        const raw = trimmedBuffer.slice(6).trim();
         if (raw) {
-          try {
-            const data = JSON.parse(raw) as { content?: string; error?: string };
-            if (data.error) {
-              streamError = data.error;
-            } else if (data.content) {
-              setMessages((prev) => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last.role === 'assistant') {
-                  updated[updated.length - 1] = { ...last, content: last.content + data.content };
-                }
-                return updated;
-              });
-            }
-          } catch (parseError) {
-            console.warn('Failed to parse trailing SSE data:', raw, parseError);
+          const data = parseSsePayload(raw);
+          if (data?.error) {
+            streamError = data.error;
+          } else if (data?.content) {
+            appendAssistantChunk(data.content);
           }
         }
       }
