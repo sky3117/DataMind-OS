@@ -218,16 +218,15 @@ export interface CleanerAnalysisResponse {
 
 export interface CleanerApplyRequest {
   file_id: string;
-  suggestions: string[];
-  auto_fix: boolean;
+  suggestion_id: string;
+  action: string;
 }
 
 export interface CleanerApplyResponse {
-  file_id: string;
-  actions_applied: string[];
-  rows_affected: number;
-  new_health_score: number;
-  message: string;
+  success: boolean;
+  before_rows: number;
+  after_rows: number;
+  cleaned_file_id: string;
 }
 
 export interface Insight {
@@ -236,8 +235,12 @@ export interface Insight {
   description: string;
   insight_type: 'trend' | 'anomaly' | 'correlation' | 'distribution' | 'recommendation';
   confidence: number;
-  supporting_data: Record<string, unknown>;
-  visualization_type?: 'line' | 'bar' | 'scatter' | 'heatmap';
+  chart_data?: {
+    type: 'bar' | 'line' | 'scatter';
+    data: Array<Record<string, unknown>>;
+    x?: string;
+    y?: string;
+  };
 }
 
 export interface AnalystInsightsResponse {
@@ -250,52 +253,52 @@ export interface AnalystInsightsResponse {
 
 export interface ReporterGenerateRequest {
   file_id: string;
-  pipeline_id?: string;
-  title: string;
-  sections: ('summary' | 'analysis' | 'insights' | 'recommendations' | 'appendix')[];
-  include_charts: boolean;
+  title?: string;
+  include_charts?: boolean;
 }
 
 export interface ReporterGenerateResponse {
   report_id: string;
-  file_id: string;
-  pdf_url: string;
+  html_url: string;
   generated_at: string;
-  page_count: number;
-  message: string;
+  title: string;
+}
+
+export interface PredictorColumnsResponse {
+  file_id: string;
+  columns: string[];
 }
 
 export interface PredictorTrainRequest {
   file_id: string;
   target_column: string;
-  features: string[];
-  model_type: 'classification' | 'regression';
-  test_size: number;
-  random_state: number;
+  model_type: 'linear_regression' | 'random_forest';
+  features?: string[];
+  test_size?: number;
+  random_state?: number;
 }
 
 export interface PredictorTrainResponse {
   model_id: string;
-  file_id: string;
   model_type: string;
   accuracy: number;
-  f1_score?: number;
-  rmse?: number;
+  r2_score: number;
+  rmse: number;
   feature_importance: Record<string, number>;
+  columns_used: string[];
   training_samples: number;
   message: string;
 }
 
 export interface PredictorPredictRequest {
   model_id: string;
-  input_data: Record<string, unknown>[];
+  input_values: Record<string, unknown>;
 }
 
 export interface PredictorPredictResponse {
   model_id: string;
-  predictions: (number | string)[];
-  confidence_scores?: number[];
-  execution_time_ms: number;
+  prediction: number;
+  confidence_interval: [number, number];
 }
 
 // ============================================================================

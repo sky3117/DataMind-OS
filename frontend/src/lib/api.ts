@@ -529,8 +529,8 @@ export async function analyzeCleanerSuggestions(
 
 export async function applyCleanerSuggestions(
   fileId: string,
-  suggestions: string[],
-  autoFix: boolean = false
+  suggestionId: string,
+  action: string,
 ): Promise<import('@/types').CleanerApplyResponse> {
   if (!fileId) {
     throw new Error('File ID is required');
@@ -542,7 +542,7 @@ export async function applyCleanerSuggestions(
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_id: fileId, suggestions, auto_fix: autoFix }),
+        body: JSON.stringify({ file_id: fileId, suggestion_id: suggestionId, action }),
       },
       DEFAULT_TIMEOUT_MS * 2
     );
@@ -609,13 +609,11 @@ export async function generateAnalystInsights(
 
 export async function generateReport(
   fileId: string,
-  title: string,
-  sections: string[],
-  pipelineId?: string,
-  includeCharts: boolean = true
+  title?: string,
+  includeCharts: boolean = true,
 ): Promise<import('@/types').ReporterGenerateResponse> {
-  if (!fileId || !title) {
-    throw new Error('File ID and title are required');
+  if (!fileId) {
+    throw new Error('File ID is required');
   }
 
   try {
@@ -626,9 +624,7 @@ export async function generateReport(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           file_id: fileId,
-          pipeline_id: pipelineId,
           title,
-          sections,
           include_charts: includeCharts,
         }),
       },
@@ -656,13 +652,48 @@ export async function generateReport(
 // PHASE 2: PREDICTOR AGENT API FUNCTIONS
 // ============================================================================
 
+export async function getPredictorColumns(
+  fileId: string
+): Promise<import('@/types').PredictorColumnsResponse> {
+  if (!fileId) {
+    throw new Error('File ID is required');
+  }
+
+  try {
+    const res = await fetchWithTimeoutAndRetry(
+      `${API_BASE}/api/agents/predictor/columns`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_id: fileId }),
+      },
+      DEFAULT_TIMEOUT_MS
+    );
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      const detail = typeof err === 'object' && err !== null && 'detail' in err
+        ? String(err.detail)
+        : `Get columns failed with status ${res.status}`;
+      throw new Error(detail);
+    }
+
+    return res.json();
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Get columns failed: Unknown error');
+  }
+}
+
 export async function trainPredictorModel(
   fileId: string,
   targetColumn: string,
-  features: string[],
-  modelType: string = 'classification',
+  modelType: string = 'random_forest',
   testSize: number = 0.2,
-  randomState: number = 42
+  randomState: number = 42,
+  features?: string[],
 ): Promise<import('@/types').PredictorTrainResponse> {
   if (!fileId || !targetColumn) {
     throw new Error('File ID and target column are required');
@@ -677,10 +708,10 @@ export async function trainPredictorModel(
         body: JSON.stringify({
           file_id: fileId,
           target_column: targetColumn,
-          features,
           model_type: modelType,
           test_size: testSize,
           random_state: randomState,
+          features: features ?? null,
         }),
       },
       DEFAULT_TIMEOUT_MS * 3
@@ -705,7 +736,7 @@ export async function trainPredictorModel(
 
 export async function makePrediction(
   modelId: string,
-  inputData: Record<string, unknown>[]
+  inputValues: Record<string, unknown>
 ): Promise<import('@/types').PredictorPredictResponse> {
   if (!modelId) {
     throw new Error('Model ID is required');
@@ -717,7 +748,7 @@ export async function makePrediction(
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model_id: modelId, input_data: inputData }),
+        body: JSON.stringify({ model_id: modelId, input_values: inputValues }),
       },
       DEFAULT_TIMEOUT_MS
     );

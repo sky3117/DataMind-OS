@@ -1,12 +1,12 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel, ConfigDict
 from typing import List, Dict, Any, Optional
-from typing import Literal
 from pathlib import Path
 from app.config import UPLOAD_DIR
 import pandas as pd
 import logging
-import asyncio
+import os
 
 from app.services.agents.cleaner import CleanerAgent
 from app.services.agents.analyst import AnalystAgent
@@ -16,6 +16,12 @@ from app.services.agents.predictor import PredictorAgent
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+REPORTS_DIR = os.getenv("REPORTS_DIR", "./reports")
+
+
+# ---------------------------------------------------------------------------
+# Request / Response models
+# ---------------------------------------------------------------------------
 
 class CleanerAnalyzeRequest(BaseModel):
     file_id: str
@@ -23,8 +29,8 @@ class CleanerAnalyzeRequest(BaseModel):
 
 class CleanerApplyRequest(BaseModel):
     file_id: str
-    suggestions: List[str]
-    auto_fix: bool = False
+    suggestion_id: str
+    action: str  # mean / median / mode / ffill / drop / remove / cap / keep
 
 
 class AnalystInsightsRequest(BaseModel):
@@ -33,10 +39,12 @@ class AnalystInsightsRequest(BaseModel):
 
 class ReporterGenerateRequest(BaseModel):
     file_id: str
-    pipeline_id: Optional[str] = None
-    title: str
-    sections: List[str]
+    title: Optional[str] = "Data Analysis Report"
     include_charts: bool = True
+
+
+class PredictorColumnsRequest(BaseModel):
+    file_id: str
 
 
 class PredictorTrainRequest(BaseModel):
@@ -44,9 +52,9 @@ class PredictorTrainRequest(BaseModel):
 
     file_id: str
     target_column: str
-    features: List[str] = Field(min_length=1)
-    model_type: Literal["classification", "regression"] = "classification"
-    test_size: float = Field(default=0.2, gt=0.0, lt=1.0)
+    model_type: str = "random_forest"  # linear_regression | random_forest
+    features: Optional[List[str]] = None
+    test_size: float = 0.2
     random_state: int = 42
 
 
@@ -54,23 +62,24 @@ class PredictorPredictRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     model_id: str
-    input_data: List[Dict[str, Any]] = Field(min_length=1)
+    input_values: Dict[str, Any]
 
 
-def _load_dataframe(file_id: str) -> pd.DataFrame:
-    """Load dataframe from uploaded file."""
-    # Validate file_id to prevent directory traversal
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+
+def _resolve_file(file_id: str):
+    """Return (file_dir: Path, file_path: Path) or raise HTTPException."""
     if ".." in file_id or "/" in file_id or "\\" in file_id:
         raise HTTPException(status_code=400, detail="Invalid file ID")
-    
+
     file_dir = Path(UPLOAD_DIR) / file_id
-    
-    # Ensure the resolved path is still within UPLOAD_DIR
     try:
         file_dir.resolve().relative_to(Path(UPLOAD_DIR).resolve())
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid file ID")
-    
+
     if not file_dir.exists():
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -78,11 +87,15 @@ def _load_dataframe(file_id: str) -> pd.DataFrame:
     if not files:
         raise HTTPException(status_code=404, detail="No files found")
 
-    file_path = files[0]
-    ext = file_path.suffix.lower()
+    return file_dir, files[0]
 
+
+def _load_dataframe(file_id: str) -> pd.DataFrame:
+    """Load dataframe from uploaded file."""
+    _, file_path = _resolve_file(file_id)
+    ext = file_path.suffix.lower()
     try:
-        if ext in [".csv"]:
+        if ext == ".csv":
             return pd.read_csv(file_path)
         elif ext in [".xlsx", ".xls"]:
             return pd.read_excel(file_path)
@@ -91,18 +104,20 @@ def _load_dataframe(file_id: str) -> pd.DataFrame:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error loading file: {str(e)}")
+        logger.error(f"Error loading file: {e}")
         raise HTTPException(status_code=500, detail="Error loading file")
 
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
 @router.post("/agents/cleaner/analyze")
 async def analyze_cleaner(request: CleanerAnalyzeRequest):
     """Analyze data quality and suggest cleaning actions."""
     try:
         df = _load_dataframe(request.file_id)
-
         result = await CleanerAgent.analyze_data(df)
-
         return {
             "analysis_id": f"analysis_{request.file_id}",
             "file_id": request.file_id,
@@ -110,34 +125,45 @@ async def analyze_cleaner(request: CleanerAnalyzeRequest):
             "overall_health_score": result["overall_health_score"],
             "recommended_actions": result["recommended_actions"],
         }
-
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Cleaner analysis error: {str(e)}")
+        logger.error(f"Cleaner analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/agents/cleaner/apply")
 async def apply_cleaner(request: CleanerApplyRequest):
-    """Apply cleaning actions to dataset."""
+    """Apply a single cleaning fix to the dataset."""
     try:
-        df = _load_dataframe(request.file_id)
+        file_dir, file_path = _resolve_file(request.file_id)
+        ext = file_path.suffix.lower()
+        try:
+            if ext == ".csv":
+                df = pd.read_csv(file_path)
+            elif ext in [".xlsx", ".xls"]:
+                df = pd.read_excel(file_path)
+            else:
+                raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error loading file: {e}")
 
-        result = await CleanerAgent.apply_cleaning(df, request.suggestions, request.auto_fix)
-
-        return {
-            "file_id": request.file_id,
-            "actions_applied": result["actions_applied"],
-            "rows_affected": result["rows_affected"],
-            "new_health_score": result["new_health_score"],
-            "message": "Cleaning applied successfully",
-        }
-
+        result = await CleanerAgent.apply_fix(
+            df=df,
+            suggestion_id=request.suggestion_id,
+            action=request.action,
+            file_dir=file_dir,
+            file_path=file_path,
+        )
+        return result
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Cleaner apply error: {str(e)}")
+        logger.error(f"Cleaner apply error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -146,9 +172,7 @@ async def generate_insights(request: AnalystInsightsRequest):
     """Generate insights from data."""
     try:
         df = _load_dataframe(request.file_id)
-
         result = await AnalystAgent.generate_insights(df)
-
         return {
             "analysis_id": f"insights_{request.file_id}",
             "file_id": request.file_id,
@@ -156,77 +180,93 @@ async def generate_insights(request: AnalystInsightsRequest):
             "key_findings": result["key_findings"],
             "next_questions": result["next_questions"],
         }
-
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Analyst insights error: {str(e)}")
+        logger.error(f"Analyst insights error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/agents/reporter/generate")
 async def generate_report(request: ReporterGenerateRequest):
-    """Generate PDF report."""
+    """Generate an HTML report from the dataset."""
     try:
         df = _load_dataframe(request.file_id)
-
         result = await ReporterAgent.generate_report(
+            df=df,
+            file_id=request.file_id,
             title=request.title,
-            sections=request.sections,
             include_charts=request.include_charts,
-            analysis_data={},
         )
-
         return result
-
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Reporter generation error: {str(e)}")
+        logger.error(f"Reporter generation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/reports/{report_id}", response_class=HTMLResponse)
+async def get_report(report_id: str):
+    """Serve a generated HTML report."""
+    if ".." in report_id or "/" in report_id or "\\" in report_id:
+        raise HTTPException(status_code=400, detail="Invalid report ID")
+    report_path = Path(REPORTS_DIR) / f"{report_id}.html"
+    if not report_path.exists():
+        raise HTTPException(status_code=404, detail="Report not found")
+    return HTMLResponse(content=report_path.read_text(encoding="utf-8"))
+
+
+@router.post("/agents/predictor/columns")
+async def get_predictor_columns(request: PredictorColumnsRequest):
+    """Return column list for target/feature selection."""
+    try:
+        df = _load_dataframe(request.file_id)
+        columns = await PredictorAgent.get_columns(df)
+        return {"file_id": request.file_id, "columns": columns}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Predictor columns error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/agents/predictor/train")
 async def train_predictor(request: PredictorTrainRequest):
-    """Train a predictive model."""
+    """Train a predictive model (linear_regression or random_forest)."""
     try:
         df = _load_dataframe(request.file_id)
-
         result = await PredictorAgent.train_model(
             df=df,
             target_column=request.target_column,
-            features=request.features,
             model_type=request.model_type,
             test_size=request.test_size,
             random_state=request.random_state,
+            features=request.features,
         )
-
         return result
-
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Predictor training error: {str(e)}")
+        logger.error(f"Predictor training error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/agents/predictor/predict")
 async def make_prediction(request: PredictorPredictRequest):
-    """Make predictions with a trained model."""
+    """Make a single prediction with a trained model."""
     try:
         result = await PredictorAgent.make_predictions(
             model_id=request.model_id,
-            input_data=request.input_data,
+            input_values=request.input_values,
         )
-
         return result
-
     except ValueError as e:
-        if "not found" in str(e):
+        if "not found" in str(e).lower():
             raise HTTPException(status_code=404, detail=str(e))
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Predictor prediction error: {str(e)}")
+        logger.error(f"Predictor prediction error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
