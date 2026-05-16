@@ -11,18 +11,29 @@ import {
   Type,
   Waves,
 } from 'lucide-react';
-import type { CleanerAnalysisResponse, CleanerSuggestion } from '@/types';
+import type {
+  AnalystInsightsResponse,
+  CleanerAnalysisResponse,
+  CleanerSuggestion,
+  ReporterGenerateResponse,
+} from '@/types';
 import { useGlobalContext } from '@/context/GlobalContext';
 
 interface AgentsPageProps {
   fileId?: string;
 }
 
+type AgentResult =
+  | CleanerAnalysisResponse
+  | AnalystInsightsResponse
+  | ReporterGenerateResponse
+  | Record<string, unknown>;
+
 export default function AgentsPage({ fileId }: AgentsPageProps) {
   const { addNotification } = useGlobalContext();
   const [activeAgent, setActiveAgent] = useState<string>('cleaner');
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<unknown | null>(null);
+  const [results, setResults] = useState<AgentResult | null>(null);
   const [applyingSuggestionId, setApplyingSuggestionId] = useState<string | null>(null);
   const [suggestionStatus, setSuggestionStatus] = useState<Record<string, 'applied' | 'skipped'>>({});
 
@@ -120,12 +131,11 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
     inconsistent_format: Type,
   };
 
-  const handleApplyFix = async (suggestionId: string) => {
+  const handleApplyFix = async (suggestionId: string, autoFix: boolean = true) => {
     if (!fileId) return;
     setApplyingSuggestionId(suggestionId);
     try {
       const api = await import('@/lib/api');
-      const autoFix = true;
       await api.applyCleanerSuggestions(fileId, [suggestionId], autoFix);
       setSuggestionStatus((prev) => ({ ...prev, [suggestionId]: 'applied' }));
       addNotification('Suggestion applied', 'success');
@@ -201,6 +211,7 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
                       const status = suggestionStatus[suggestion.id];
                       const isApplied = status === 'applied';
                       const isSkipped = status === 'skipped';
+                      const isProcessed = isApplied || isSkipped;
 
                       return (
                         <div
@@ -225,7 +236,7 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
                           <div className="mt-3 flex flex-wrap items-center gap-2">
                             <button
                               onClick={() => handleApplyFix(suggestion.id)}
-                              disabled={isApplied || isSkipped || applyingSuggestionId === suggestion.id}
+                              disabled={isProcessed || applyingSuggestionId === suggestion.id}
                               className="px-3 py-1.5 text-xs font-medium rounded bg-blue-600 border border-blue-500/50 text-slate-100 hover:bg-blue-500 disabled:bg-slate-700 disabled:border-slate-600 disabled:text-slate-400"
                             >
                               {isApplied ? 'Applied' : applyingSuggestionId === suggestion.id ? 'Applying...' : 'Apply Fix'}
@@ -234,7 +245,7 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
                               onClick={() =>
                                 setSuggestionStatus((prev) => ({ ...prev, [suggestion.id]: 'skipped' }))
                               }
-                              disabled={isApplied || isSkipped}
+                              disabled={isProcessed}
                               className="px-3 py-1.5 text-xs font-medium rounded bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 disabled:bg-slate-800/70 disabled:text-slate-500"
                             >
                               {isSkipped ? 'Skipped' : 'Skip'}
