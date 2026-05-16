@@ -6,6 +6,7 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useRef,
 } from 'react';
 import type { 
   Notification, 
@@ -33,7 +34,7 @@ export function GlobalProvider({ children }: { children: React.ReactNode }) {
   const [activeTab, setActiveTabState] = useState('home');
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
-  const [timeoutRefs, setTimeoutRefs] = useState<Record<string, NodeJS.Timeout>>({});
+  const timeoutRefsRef = useRef<Record<string, NodeJS.Timeout>>({});
 
   // Load state from localStorage on mount
   useEffect(() => {
@@ -91,14 +92,10 @@ export function GlobalProvider({ children }: { children: React.ReactNode }) {
   const removeNotification = useCallback((id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     // Clear timeout if exists
-    setTimeoutRefs((prev) => {
-      if (prev[id]) {
-        clearTimeout(prev[id]);
-        const { [id]: _, ...rest } = prev;
-        return rest;
-      }
-      return prev;
-    });
+    if (timeoutRefsRef.current[id]) {
+      clearTimeout(timeoutRefsRef.current[id]);
+      delete timeoutRefsRef.current[id];
+    }
   }, []);
 
   const addNotification = useCallback(
@@ -118,7 +115,7 @@ export function GlobalProvider({ children }: { children: React.ReactNode }) {
         removeNotification(id);
       }, 3000);
 
-      setTimeoutRefs((prev) => ({ ...prev, [id]: timeout }));
+      timeoutRefsRef.current[id] = timeout;
     },
     [removeNotification]
   );
@@ -126,9 +123,9 @@ export function GlobalProvider({ children }: { children: React.ReactNode }) {
   // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
-      Object.values(timeoutRefs).forEach(clearTimeout);
+      Object.values(timeoutRefsRef.current).forEach(clearTimeout);
     };
-  }, [timeoutRefs]);
+  }, []);
 
   const value: GlobalContextType = {
     fileId,

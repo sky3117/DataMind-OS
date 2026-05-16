@@ -2,13 +2,13 @@
 
 import { useGlobalContext } from '@/context/GlobalContext';
 import ChatInterface from '@/components/ChatInterface';
-import { Upload, MessageSquare, ArrowRight } from 'lucide-react';
+import { Upload, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ChatPage() {
   const { fileId, filename } = useGlobalContext();
 
-  if (!fileId) {
+  if (!fileId || !filename) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
         <div className="max-w-md w-full text-center">
@@ -56,7 +56,7 @@ export default function ChatPage() {
       </header>
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <ChatInterface fileId={fileId} filename={filename || ''} />
+        <ChatInterface fileId={fileId} filename={filename} />
       </div>
     </div>
   );
