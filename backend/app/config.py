@@ -9,4 +9,4 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
 ALLOWED_EXTENSIONS = {"csv", "xlsx", "xls"}
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+CORS_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")]
