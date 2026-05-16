@@ -1,4 +1,6 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { API_BASE_URL, WS_BASE_URL } from './config';
+
+const API_BASE = API_BASE_URL;
 
 // Configuration
 const DEFAULT_TIMEOUT_MS = 30000; // 30 seconds
@@ -884,8 +886,6 @@ export function createCollaborationWebSocket(pipelineId: string): WebSocket {
     throw new Error('Pipeline ID is required');
   }
 
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsBase = process.env.NEXT_PUBLIC_WS_URL || `${protocol}//${window.location.host}`;
-  return new WebSocket(`${wsBase}/api/ws/collaboration/${encodeURIComponent(pipelineId)}`);
+  return new WebSocket(`${WS_BASE_URL}/api/ws/collaboration/${encodeURIComponent(pipelineId)}`);
 }
 
