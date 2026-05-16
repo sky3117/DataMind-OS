@@ -5,6 +5,9 @@ from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from app.config import UPLOAD_DIR, MAX_FILE_SIZE_MB, ALLOWED_EXTENSIONS
+from datetime import datetime, timezone
+
+MAX_RECENT_FILES = 50
 
 router = APIRouter()
 
@@ -65,3 +68,40 @@ async def get_file_info(file_id: str):
         "filename": f.name,
         "size_bytes": f.stat().st_size,
     }
+
+
+@router.get("/files")
+async def list_files():
+    upload_path = Path(UPLOAD_DIR)
+    if not upload_path.exists():
+        return {"files": []}
+    
+    files_data = []
+    
+    for file_dir in sorted(
+        upload_path.iterdir(), 
+        key=lambda p: p.stat().st_mtime, 
+        reverse=True
+    )[:MAX_RECENT_FILES]:
+        if not file_dir.is_dir():
+            continue
+            
+        data_files = list(file_dir.iterdir())
+        if not data_files:
+            continue
+            
+        data_file = data_files[0]
+        file_stat = data_file.stat()
+        
+        # Convert file modification time to UTC ISO format timestamp
+        created_at = datetime.fromtimestamp(file_stat.st_mtime, tz=timezone.utc).isoformat()
+        
+        files_data.append({
+            "file_id": file_dir.name,
+            "filename": data_file.name,
+            "size_bytes": file_stat.st_size,
+            "created_at": created_at,
+        })
+    
+    return {"files": files_data}
+
