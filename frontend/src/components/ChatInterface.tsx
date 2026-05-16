@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { streamChat } from '@/lib/api';
+import { API_BASE_URL } from '@/lib/config';
 import type { ChatMessage } from '@/types';
 import { Send, Bot, User, Loader2, AlertCircle, Sparkles } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -86,15 +86,105 @@ export default function ChatInterface({ fileId, filename }: ChatInterfaceProps) 
     setMessages((prev) => [...prev, assistantMsg]);
 
     try {
-      for await (const chunk of streamChat(fileId, question.trim())) {
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last.role === 'assistant') {
-            updated[updated.length - 1] = { ...last, content: last.content + chunk };
+      const response = await fetch(`${API_BASE_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_id: fileId,
+          question: question.trim(),
+          message: question.trim(),
+          chat_history: [],
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+        const detail = typeof errorData === 'object' && errorData !== null && 'detail' in errorData
+          ? String(errorData.detail)
+          : `Chat request failed with status ${response.status}`;
+        throw new Error(detail);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No response body');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let streamError: string | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+
+          const raw = line.slice(6).trim();
+          if (!raw) continue;
+
+          try {
+            const data = JSON.parse(raw) as { content?: string; error?: string; done?: boolean };
+
+            if (data.error) {
+              streamError = data.error;
+              break;
+            }
+
+            if (data.content) {
+              setMessages((prev) => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                if (last.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, content: last.content + data.content };
+                }
+                return updated;
+              });
+            }
+
+            if (data.done) {
+              break;
+            }
+          } catch {
+            continue;
           }
-          return updated;
-        });
+        }
+
+        if (streamError) {
+          break;
+        }
+      }
+
+      if (!streamError && buffer.trim().startsWith('data: ')) {
+        const raw = buffer.trim().slice(6).trim();
+        if (raw) {
+          try {
+            const data = JSON.parse(raw) as { content?: string; error?: string };
+            if (data.error) {
+              streamError = data.error;
+            } else if (data.content) {
+              setMessages((prev) => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                if (last.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, content: last.content + data.content };
+                }
+                return updated;
+              });
+            }
+          } catch {
+            // Ignore invalid trailing payload
+          }
+        }
+      }
+
+      if (streamError) {
+        throw new Error(streamError);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Chat failed');
