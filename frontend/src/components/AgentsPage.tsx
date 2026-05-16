@@ -143,14 +143,15 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
     inconsistent_format: Type,
   };
 
+  const primaryActionButtonClasses =
+    'px-3 py-1.5 text-xs font-medium rounded bg-blue-600 border border-blue-500/50 text-slate-100 hover:bg-blue-500 disabled:bg-slate-700 disabled:border-slate-600 disabled:text-slate-400';
+
   const handleApplyFix = async (suggestionId: string) => {
     if (!fileId) return;
     setApplyingSuggestionId(suggestionId);
     try {
       const api = await import('@/lib/api');
-      const autoFixEnabled = true;
-      // Apply Fix should trigger backend auto-fix behavior for the selected suggestion.
-      await api.applyCleanerSuggestions(fileId, [suggestionId], autoFixEnabled);
+      await api.applyCleanerSuggestions(fileId, [suggestionId], true);
       setSuggestionStatus((prev) => ({ ...prev, [suggestionId]: 'applied' }));
       addNotification('Suggestion applied', 'success');
     } catch (error) {
@@ -254,7 +255,7 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
                             <button
                               onClick={() => handleApplyFix(suggestion.id)}
                               disabled={isProcessed || applyingSuggestionId === suggestion.id}
-                              className="px-3 py-1.5 text-xs font-medium rounded bg-blue-600 border border-blue-500/50 text-slate-100 hover:bg-blue-500 disabled:bg-slate-700 disabled:border-slate-600 disabled:text-slate-400"
+                              className={primaryActionButtonClasses}
                             >
                               {isApplied ? 'Applied' : applyingSuggestionId === suggestion.id ? 'Applying...' : 'Apply Fix'}
                             </button>
