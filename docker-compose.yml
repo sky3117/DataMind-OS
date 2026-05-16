@@ -39,7 +39,7 @@ services:
       REDIS_URL: redis://redis:6379
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       UPLOAD_DIR: /app/uploads
-      CORS_ORIGINS: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
     volumes:
       - uploads_data:/app/uploads
     depends_on:
