@@ -86,15 +86,11 @@ export default function ChatInterface({ fileId, filename }: ChatInterfaceProps) 
     setMessages((prev) => [...prev, assistantMsg]);
 
     try {
+      const trimmedQuestion = question.trim();
       const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          file_id: fileId,
-          question: question.trim(),
-          message: question.trim(),
-          chat_history: [],
-        }),
+        body: JSON.stringify({ file_id: fileId, question: trimmedQuestion, chat_history: [] }),
       });
 
       if (!response.ok) {
@@ -113,6 +109,7 @@ export default function ChatInterface({ fileId, filename }: ChatInterfaceProps) 
       const decoder = new TextDecoder();
       let buffer = '';
       let streamError: string | null = null;
+      let streamDone = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -148,14 +145,16 @@ export default function ChatInterface({ fileId, filename }: ChatInterfaceProps) 
             }
 
             if (data.done) {
+              streamDone = true;
               break;
             }
-          } catch {
+          } catch (parseError) {
+            console.warn('Failed to parse SSE line:', raw, parseError);
             continue;
           }
         }
 
-        if (streamError) {
+        if (streamError || streamDone) {
           break;
         }
       }
@@ -177,8 +176,8 @@ export default function ChatInterface({ fileId, filename }: ChatInterfaceProps) 
                 return updated;
               });
             }
-          } catch {
-            // Ignore invalid trailing payload
+          } catch (parseError) {
+            console.warn('Failed to parse trailing SSE data:', raw, parseError);
           }
         }
       }
