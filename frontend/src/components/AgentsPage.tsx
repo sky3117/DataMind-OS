@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   AlertTriangle,
   Brain,
@@ -134,6 +134,7 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
   };
 
   const cleanerResults = isCleanerResult(results) ? results : null;
+  const hasResults = results !== null;
 
   return (
     <div className="min-h-screen bg-slate-950 p-6">
@@ -181,7 +182,7 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
             </button>
           </div>
 
-          {results && (
+          {hasResults && (
             <div className="bg-slate-900 border border-slate-800 rounded p-4 max-h-96 overflow-y-auto">
               {activeAgent === 'cleaner' && cleanerResults ? (
                 <div className="space-y-4">
@@ -262,7 +263,7 @@ export default function AgentsPage({ fileId }: AgentsPageProps) {
           )}
         </div>
 
-        {results && (
+        {hasResults && (
           <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 border border-blue-500/50 text-slate-100 rounded hover:bg-blue-500">
             <Download size={16} />
             Download Results
