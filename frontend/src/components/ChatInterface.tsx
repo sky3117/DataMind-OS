@@ -67,10 +67,16 @@ export default function ChatInterface({ fileId, filename }: ChatInterfaceProps) 
   const sendMessage = async (question: string) => {
     if (!question.trim() || streaming) return;
 
+    const trimmedQuestion = question.trim();
+    const chatHistory = messages.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
     setError(null);
     const userMsg: ChatMessage = {
       role: 'user',
-      content: question.trim(),
+      content: trimmedQuestion,
       timestamp: new Date(),
     };
 
@@ -86,12 +92,6 @@ export default function ChatInterface({ fileId, filename }: ChatInterfaceProps) 
     setMessages((prev) => [...prev, assistantMsg]);
 
     try {
-      const trimmedQuestion = question.trim();
-      const chatHistory = messages.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
-
       const appendAssistantChunk = (chunk: string) => {
         setMessages((prev) => {
           const updated = [...prev];
@@ -128,9 +128,12 @@ export default function ChatInterface({ fileId, filename }: ChatInterfaceProps) 
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-        const detail = typeof errorData === 'object' && errorData !== null && 'detail' in errorData
-          ? String(errorData.detail)
-          : `Chat request failed with status ${response.status}`;
+        const detail =
+          (typeof errorData === 'object' && errorData !== null && 'detail' in errorData
+            ? String(errorData.detail)
+            : undefined) ??
+          response.statusText ??
+          `Chat request failed with status ${response.status}`;
         throw new Error(detail);
       }
 
