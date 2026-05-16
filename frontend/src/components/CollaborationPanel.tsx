@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Users, MessageSquare, Share2, Activity, Send } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Users, MessageSquare, Share2, Activity, Send, Wifi, WifiOff } from 'lucide-react';
 
 interface CollaborationPanelProps {
   resourceType?: string;
@@ -20,11 +20,60 @@ export default function CollaborationPanel({
   );
   const [loading, setLoading] = useState(false);
   const [sharedWith, setSharedWith] = useState<string[]>([]);
+  const [isConnected, setIsConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     loadComments();
     loadActivities();
+    connectWebSocket();
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
   }, [resourceId]);
+
+  const connectWebSocket = () => {
+    try {
+      const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${typeof window !== 'undefined' ? window.location.host : 'localhost:8000'}/api/ws/collaboration/${resourceId}`;
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        setIsConnected(true);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'comment') {
+            setComments((prev) => [...prev, data.data]);
+          } else if (data.type === 'activity') {
+            setActivities((prev) => [data.data, ...prev]);
+          }
+        } catch (error) {
+          console.error('Failed to parse WebSocket message:', error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setIsConnected(false);
+      };
+
+      ws.onclose = () => {
+        console.log('WebSocket disconnected');
+        setIsConnected(false);
+      };
+
+      wsRef.current = ws;
+    } catch (error) {
+      console.error('Failed to connect WebSocket:', error);
+    }
+  };
 
   const loadComments = async () => {
     try {
@@ -54,6 +103,14 @@ export default function CollaborationPanel({
       await addComment(resourceType, resourceId, 'current-user', newComment);
       setNewComment('');
       await loadComments();
+      
+      // Broadcast via WebSocket
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'comment',
+          data: { author: 'current-user', content: newComment, created_at: new Date().toISOString() },
+        }));
+      }
     } catch (error) {
       console.error('Failed to add comment:', error);
       alert('Failed to add comment');
@@ -83,6 +140,16 @@ export default function CollaborationPanel({
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <Users size={20} />
           Collaboration
+          <div
+            className={isConnected ? 'text-green-600' : 'text-gray-400'}
+            title={isConnected ? 'Connected' : 'Disconnected'}
+          >
+            {isConnected ? (
+              <Wifi size={14} />
+            ) : (
+              <WifiOff size={14} />
+            )}
+          </div>
         </h2>
         <div className="flex gap-2">
           <button

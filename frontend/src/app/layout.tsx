@@ -3,6 +3,7 @@ import './globals.css';
 import Sidebar from '@/components/Sidebar';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
 import { ToastProvider } from '@/components/Toast';
+import { CommandPaletteApp } from '@/components/CommandPaletteApp';
 
 export const metadata: Metadata = {
   title: 'DataMind OS – AI Data Intelligence Platform',
@@ -25,6 +26,7 @@ export default function RootLayout({
             </main>
           </div>
           <KeyboardShortcuts />
+          <CommandPaletteApp />
         </ToastProvider>
       </body>
     </html>

@@ -1,47 +1,88 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
-import { Plus, Play, Save, Download, Copy } from 'lucide-react';
+import React, { useState, useCallback, useRef } from 'react';
+import ReactFlow, {
+  Node,
+  Edge,
+  Controls,
+  Background,
+  useNodesState,
+  useEdgesState,
+  addEdge,
+  Connection,
+  Panel,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
+import { Plus, Play, Save } from 'lucide-react';
 
-interface PipelineNode {
-  id: string;
-  type: string;
-  label: string;
-  position?: { x: number; y: number };
-}
+const NODE_TYPES = [
+  { id: 'source', label: 'Source', color: '#8b5cf6' },
+  { id: 'filter', label: 'Filter', color: '#3b82f6' },
+  { id: 'transform', label: 'Transform', color: '#10b981' },
+  { id: 'aggregate', label: 'Aggregate', color: '#f59e0b' },
+  { id: 'join', label: 'Join', color: '#ec4899' },
+  { id: 'ai_transform', label: 'AI Transform', color: '#06b6d4' },
+  { id: 'output', label: 'Output', color: '#ef4444' },
+];
 
 interface PipelineBuilderProps {
   fileId?: string;
-  onPipelineChange?: (nodes: PipelineNode[], edges: any[]) => void;
+  onPipelineChange?: (nodes: Node[], edges: Edge[]) => void;
 }
+
+const NodeComponent = ({ data, id, selected }: any) => {
+  const backgroundColor = (data.color || '#8b5cf6') + (selected ? 'FF' : 'CC');
+  return (
+    <div
+      className="px-4 py-2 rounded-lg border-2 border-solid text-white font-medium shadow-lg"
+      style={{
+        backgroundColor,
+        borderColor: selected ? '#ffffff' : (data.color || '#8b5cf6'),
+      }}
+    >
+      {data.label}
+    </div>
+  );
+};
 
 export default function PipelineBuilder({
   fileId,
   onPipelineChange,
 }: PipelineBuilderProps) {
-  const [nodes, setNodes] = useState<PipelineNode[]>([]);
-  const [edges, setEdges] = useState<any[]>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [isExecuting, setIsExecuting] = useState(false);
+  const nodeCountRef = useRef(0);
+
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      setEdges((eds) => addEdge(connection, eds));
+    },
+    [setEdges]
+  );
 
   const addNode = useCallback(
     (type: string) => {
-      const newNode: PipelineNode = {
-        id: `node_${Date.now()}`,
-        type,
-        label: `${type.charAt(0).toUpperCase() + type.slice(1)} Node`,
-        position: { x: Math.random() * 400, y: Math.random() * 300 },
-      };
-      setNodes([...nodes, newNode]);
-    },
-    [nodes]
-  );
+      nodeCountRef.current += 1;
+      const nodeType = NODE_TYPES.find((t) => t.id === type);
+      if (!nodeType) return;
 
-  const removeNode = useCallback(
-    (nodeId: string) => {
-      setNodes(nodes.filter((n) => n.id !== nodeId));
-      setEdges(edges.filter((e) => e.source !== nodeId && e.target !== nodeId));
+      const newNode: Node = {
+        id: `${type}_${nodeCountRef.current}`,
+        type: 'default',
+        data: {
+          label: `${nodeType.label}`,
+          nodeType: type,
+          color: nodeType.color,
+        },
+        position: {
+          x: Math.random() * 600 + 50,
+          y: Math.random() * 400 + 50,
+        },
+      };
+      setNodes((nds) => [...nds, newNode]);
     },
-    [nodes, edges]
+    [setNodes]
   );
 
   const executePipeline = async () => {
@@ -52,12 +93,22 @@ export default function PipelineBuilder({
 
     setIsExecuting(true);
     try {
-      const { executePipeline } = await import('@/lib/api');
-      const result = await executePipeline(nodes as any, edges, fileId);
-      console.log('Pipeline executed:', result);
+      const { executePipeline: executeApi } = await import('@/lib/api');
+      const apiNodes = nodes.map((n) => ({
+        id: n.id,
+        type: (n.data as any).nodeType || 'transform',
+        label: (n.data as any).label,
+        config: { operation: 'default', parameters: {} },
+      }));
+      const apiEdges = edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+      }));
+      const result = await executeApi(apiNodes, apiEdges, fileId);
       alert('Pipeline executed successfully!');
     } catch (error) {
-      console.error('Pipeline execution failed:', error);
+      console.error('Execution failed:', error);
       alert('Pipeline execution failed');
     } finally {
       setIsExecuting(false);
@@ -65,97 +116,108 @@ export default function PipelineBuilder({
   };
 
   const savePipeline = async () => {
-    if (!fileId || nodes.length === 0) {
-      alert('Please configure the pipeline first');
-      return;
-    }
-
-    const name = prompt('Enter pipeline name:', 'My Pipeline');
+    const name = prompt('Enter pipeline name:');
     if (!name) return;
 
     try {
-      const { savePipeline } = await import('@/lib/api');
-      const result = await savePipeline(
-        name,
-        'Pipeline created through builder',
-        fileId,
-        nodes as any,
-        edges
-      );
-      alert(`Pipeline saved: ${result.id}`);
+      const { savePipeline: saveApi } = await import('@/lib/api');
+      const apiNodes = nodes.map((n) => ({
+        id: n.id,
+        type: (n.data as any).nodeType || 'transform',
+        label: (n.data as any).label,
+        config: { operation: 'default', parameters: {} },
+        position: n.position,
+      }));
+      const apiEdges = edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+      }));
+      await saveApi(name, 'Custom Pipeline', fileId || '', apiNodes, apiEdges);
+      alert('Pipeline saved successfully!');
     } catch (error) {
       console.error('Save failed:', error);
-      alert('Failed to save pipeline');
+      alert('Pipeline save failed');
     }
   };
 
+  const nodeTypes = {
+    default: NodeComponent,
+  };
+
   return (
-    <div className="flex flex-col h-full bg-white rounded-lg shadow">
-      <div className="flex items-center justify-between p-4 border-b">
-        <h2 className="text-lg font-semibold">Pipeline Builder</h2>
-        <div className="flex gap-2">
-          <button
-            onClick={() => addNode('filter')}
-            className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
-            <Plus size={16} />
-            Add Filter
-          </button>
-          <button
-            onClick={() => addNode('transform')}
-            className="flex items-center gap-2 px-3 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-          >
-            <Plus size={16} />
-            Add Transform
-          </button>
-        </div>
-      </div>
+    <div className="w-full h-full bg-slate-900 rounded-lg overflow-hidden border border-slate-800">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        nodeTypes={nodeTypes}
+        fitView
+      >
+        <Background color="#1e293b" gap={16} />
+        <Controls />
 
-      <div className="flex-1 p-4 overflow-y-auto">
-        <div className="space-y-2">
-          {nodes.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">
-              Add nodes to start building your pipeline
-            </p>
-          ) : (
-            nodes.map((node) => (
-              <div
-                key={node.id}
-                className="flex items-center justify-between p-3 bg-gray-50 rounded border"
+        <Panel
+          position="top-left"
+          className="flex flex-col gap-2 bg-slate-800/95 p-3 rounded-lg border border-slate-700 backdrop-blur-sm"
+        >
+          <div className="text-sm font-semibold text-slate-100 mb-2">
+            Add Nodes
+          </div>
+          <div className="flex flex-col gap-2 max-w-xs">
+            {NODE_TYPES.map((nodeType) => (
+              <button
+                key={nodeType.id}
+                onClick={() => addNode(nodeType.id)}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white rounded-lg transition-all hover:scale-105"
+                style={{
+                  backgroundColor: nodeType.color,
+                  opacity: 0.85,
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.opacity = '1';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.opacity = '0.85';
+                }}
               >
-                <div>
-                  <p className="font-medium">{node.label}</p>
-                  <p className="text-xs text-gray-500">{node.type}</p>
-                </div>
-                <button
-                  onClick={() => removeNode(node.id)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  ×
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
+                <Plus size={16} />
+                {nodeType.label}
+              </button>
+            ))}
+          </div>
+        </Panel>
 
-      <div className="flex gap-2 p-4 border-t bg-gray-50">
-        <button
-          onClick={executePipeline}
-          disabled={isExecuting}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
+        <Panel position="top-right" className="flex gap-2">
+          <button
+            onClick={executePipeline}
+            disabled={isExecuting || nodes.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 text-white font-medium rounded-lg transition-colors"
+          >
+            <Play size={16} />
+            {isExecuting ? 'Executing...' : 'Execute'}
+          </button>
+          <button
+            onClick={savePipeline}
+            disabled={nodes.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-600 text-white font-medium rounded-lg transition-colors"
+          >
+            <Save size={16} />
+            Save
+          </button>
+        </Panel>
+
+        <Panel
+          position="bottom-left"
+          className="bg-slate-800/95 p-3 rounded-lg border border-slate-700 text-xs text-slate-300 backdrop-blur-sm"
         >
-          <Play size={16} />
-          {isExecuting ? 'Executing...' : 'Execute'}
-        </button>
-        <button
-          onClick={savePipeline}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-        >
-          <Save size={16} />
-          Save
-        </button>
-      </div>
+          <div className="font-semibold mb-2">Pipeline Stats</div>
+          <div>Nodes: {nodes.length}</div>
+          <div>Connections: {edges.length}</div>
+        </Panel>
+      </ReactFlow>
     </div>
   );
 }
