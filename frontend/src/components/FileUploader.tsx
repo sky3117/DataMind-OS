@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { uploadFile } from '@/lib/api';
+import { uploadQueue, type QueueState } from '@/lib/uploadQueue';
 import { useGlobalContext } from '@/context/GlobalContext';
 import type { UploadResponse } from '@/types';
 import { clsx } from 'clsx';
@@ -20,8 +21,14 @@ export default function FileUploader({ onUpload }: FileUploaderProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [retrying, setRetrying] = useState(false);
+  const [queueState, setQueueState] = useState<QueueState | null>(null);
   const { setFileId, setFilename, setUploadedFiles, uploadedFiles, addNotification } = useGlobalContext();
+
+  // Subscribe to queue state changes
+  useEffect(() => {
+    const unsubscribe = uploadQueue.subscribe(setQueueState);
+    return unsubscribe;
+  }, []);
 
   // Validate file before upload
   const validateFile = (file: File): string | null => {
@@ -45,14 +52,6 @@ export default function FileUploader({ onUpload }: FileUploaderProps) {
     return null;
   };
 
-  const handleRetry = useCallback(async () => {
-    // Retry is handled by the API client automatically
-    setError(null);
-    setSuccess(null);
-    setRetrying(true);
-    addNotification('Retrying upload...', 'info');
-  }, [addNotification]);
-
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       const file = acceptedFiles[0];
@@ -71,65 +70,72 @@ export default function FileUploader({ onUpload }: FileUploaderProps) {
       setUploadProgress(0);
       setUploading(true);
 
-      try {
-        // Simulate progress for better UX (actual progress is handled by fetch)
-        const progressInterval = setInterval(() => {
-          setUploadProgress((prev) => {
-            if (prev >= 90) return prev;
-            return prev + Math.random() * 20;
-          });
-        }, 200);
+      // Create upload task with error handling and recovery
+      const executeUpload = async () => {
+        try {
+          // Simulate progress for better UX
+          const progressInterval = setInterval(() => {
+            setUploadProgress((prev) => {
+              if (prev >= 90) return prev;
+              return prev + Math.random() * 20;
+            });
+          }, 200);
 
-        const response = await uploadFile(file);
-        clearInterval(progressInterval);
-        setUploadProgress(100);
+          const response = await uploadFile(file);
+          clearInterval(progressInterval);
+          setUploadProgress(100);
 
-        // Save to global context
-        setFileId(response.file_id);
-        setFilename(response.filename);
+          // Save to global context
+          setFileId(response.file_id);
+          setFilename(response.filename);
 
-        // Add to uploaded files list
-        const newFile = {
-          file_id: response.file_id,
-          filename: response.filename,
-          size_bytes: response.size_bytes,
-          created_at: new Date().toISOString(),
-        };
+          // Add to uploaded files list
+          const newFile = {
+            file_id: response.file_id,
+            filename: response.filename,
+            size_bytes: response.size_bytes,
+            created_at: new Date().toISOString(),
+          };
 
-        // Keep last 50 files
-        const updatedFiles = [newFile, ...uploadedFiles].slice(0, MAX_UPLOADED_FILES);
-        setUploadedFiles(updatedFiles);
+          // Keep last 50 files (prevent state corruption by using a fresh array)
+          const updatedFiles = [newFile, ...uploadedFiles].slice(0, MAX_UPLOADED_FILES);
+          setUploadedFiles(updatedFiles);
 
-        setSuccess(`"${response.filename}" uploaded successfully`);
-        addNotification(`Successfully uploaded ${response.filename}`, 'success');
+          setSuccess(`"${response.filename}" uploaded successfully`);
+          addNotification(`Successfully uploaded ${response.filename}`, 'success');
 
-        // Reset progress after success message is shown
-        setTimeout(() => {
+          // Reset progress after success message
+          setTimeout(() => {
+            setUploadProgress(0);
+          }, 2000);
+
+          if (onUpload) {
+            onUpload(response);
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Upload failed';
+          setError(message);
+
+          // Provide helpful error messages
+          let userMessage = message;
+          if (message.includes('timeout')) {
+            userMessage = 'Upload timed out. Please try again or use a smaller file.';
+          } else if (message.includes('429') || message.includes('too many')) {
+            userMessage = 'Too many requests. Please wait a moment and try again.';
+          } else if (message.includes('503')) {
+            userMessage = 'Server is busy. Please try again in a moment.';
+          }
+
+          addNotification(userMessage, 'error');
           setUploadProgress(0);
-        }, 2000);
+          throw err; // Re-throw to mark task as failed in queue
+        } finally {
+          setUploading(false);
+        }
+      };
 
-        if (onUpload) {
-          onUpload(response);
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Upload failed';
-        setError(message);
-        setRetrying(false);
-        
-        // Provide helpful error messages
-        let userMessage = message;
-        if (message.includes('timeout')) {
-          userMessage = 'Upload timed out. Please try again or use a smaller file.';
-        } else if (message.includes('429') || message.includes('too many')) {
-          userMessage = 'Too many requests. Please wait a moment and try again.';
-        } else if (message.includes('503')) {
-          userMessage = 'Server is busy. Please try again in a moment.';
-        }
-        
-        addNotification(userMessage, 'error');
-      } finally {
-        setUploading(false);
-      }
+      // Add task to queue
+      uploadQueue.addTask(file, executeUpload, 1);
     },
     [onUpload, setFileId, setFilename, setUploadedFiles, uploadedFiles, addNotification]
   );
@@ -142,8 +148,11 @@ export default function FileUploader({ onUpload }: FileUploaderProps) {
       'application/vnd.ms-excel': ['.xls'],
     },
     maxFiles: 1,
-    disabled: uploading || retrying,
+    disabled: uploading || (queueState?.isProcessing ?? false),
   });
+
+  const isDisabled = uploading || (queueState?.isProcessing ?? false);
+  const queuedUploads = (queueState?.queueSize ?? 0) - (uploading ? 1 : 0);
 
   return (
     <div className="w-full">
@@ -155,13 +164,13 @@ export default function FileUploader({ onUpload }: FileUploaderProps) {
           isDragActive && !isDragReject && 'border-indigo-500 bg-indigo-950/30 scale-[1.01]',
           isDragReject && 'border-red-500 bg-red-950/20',
           !isDragActive && !isDragReject && 'border-slate-600 hover:border-indigo-500',
-          (uploading || retrying) && 'opacity-60 cursor-not-allowed'
+          isDisabled && 'opacity-60 cursor-not-allowed'
         )}
       >
         <input {...getInputProps()} />
 
         <div className="flex flex-col items-center gap-4">
-          {uploading || retrying ? (
+          {uploading ? (
             <>
               <Loader2 className="w-12 h-12 text-indigo-400 animate-spin" />
               <p className="text-lg font-medium text-slate-300">Uploading…</p>
@@ -214,27 +223,21 @@ export default function FileUploader({ onUpload }: FileUploaderProps) {
         </div>
       </div>
 
+      {/* Queue info */}
+      {queuedUploads > 0 && (
+        <div className="mt-4 p-3 rounded-lg bg-blue-950/30 border border-blue-800/50 text-blue-400">
+          <p className="text-xs">
+            {queuedUploads} file{queuedUploads === 1 ? '' : 's'} waiting in queue
+          </p>
+        </div>
+      )}
+
       {error && (
-        <div className="mt-4 space-y-3">
-          <div className="flex items-start gap-3 p-4 rounded-xl bg-red-950/30 border border-red-800/50 text-red-400 animate-fade-in">
-            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm">{error}</p>
-            </div>
+        <div className="mt-4 flex items-start gap-3 p-4 rounded-xl bg-red-950/30 border border-red-800/50 text-red-400 animate-fade-in">
+          <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm">{error}</p>
           </div>
-          {error.toLowerCase().includes('timeout') || error.toLowerCase().includes('network') ? (
-            <button
-              onClick={handleRetry}
-              disabled={uploading || retrying}
-              className={clsx(
-                'w-full px-4 py-2 text-sm font-medium rounded-lg transition-colors',
-                'bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 disabled:cursor-not-allowed',
-                'text-white'
-              )}
-            >
-              {retrying ? 'Retrying...' : 'Retry Upload'}
-            </button>
-          ) : null}
         </div>
       )}
 
