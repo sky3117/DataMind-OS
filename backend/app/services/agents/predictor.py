@@ -109,9 +109,15 @@ class PredictorAgent:
         else:
             confidences = [1.0] * len(predictions)
 
+        # Convert predictions to serializable format
+        predictions_output = [
+            float(p) if isinstance(p, (int, np.integer, float)) else str(p)
+            for p in predictions
+        ]
+
         return {
             "model_id": model_id,
-            "predictions": [float(p) if isinstance(p, (int, np.integer, float)) else str(p) for p in predictions],
+            "predictions": predictions_output,
             "confidence_scores": confidences,
             "execution_time_ms": 10,
         }

@@ -26,7 +26,7 @@ export default function KeyboardShortcuts() {
       } else if (e.key === '/' && !e.shiftKey) {
         e.preventDefault();
         // Could open command palette or chat
-        router.push('/chat');
+        router.push('/');
       } else if (e.key === 'k' || e.key === 'K') {
         e.preventDefault();
         // Trigger command palette - you can use a context or state management here

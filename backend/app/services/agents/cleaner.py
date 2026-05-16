@@ -81,12 +81,16 @@ class CleanerAgent:
 
         if auto_fix:
             for col in result_df.columns:
-                if result_df[col].isnull().sum() > 0:
+                null_count = result_df[col].isnull().sum()
+                if null_count > 0:
                     if result_df[col].dtype in ['float64', 'int64']:
-                        result_df[col].fillna(result_df[col].mean(), inplace=True)
+                        mean_value = result_df[col].mean()
+                        result_df[col] = result_df[col].fillna(mean_value)
                     else:
-                        result_df[col].fillna(result_df[col].mode()[0], inplace=True)
-                    rows_affected += result_df[col].isnull().sum()
+                        mode_values = result_df[col].mode()
+                        if len(mode_values) > 0:
+                            result_df[col] = result_df[col].fillna(mode_values[0])
+                    rows_affected += null_count
 
             result_df = result_df.drop_duplicates()
 

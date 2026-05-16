@@ -63,7 +63,18 @@ _pipeline_counter = 0
 
 def _load_dataframe(file_id: str) -> pd.DataFrame:
     """Load dataframe from uploaded file."""
+    # Validate file_id to prevent directory traversal
+    if ".." in file_id or "/" in file_id or "\\" in file_id:
+        raise HTTPException(status_code=400, detail="Invalid file ID")
+    
     file_dir = Path(UPLOAD_DIR) / file_id
+    
+    # Ensure the resolved path is still within UPLOAD_DIR
+    try:
+        file_dir.resolve().relative_to(Path(UPLOAD_DIR).resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid file ID")
+    
     if not file_dir.exists():
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -81,8 +92,11 @@ def _load_dataframe(file_id: str) -> pd.DataFrame:
             return pd.read_excel(file_path)
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error loading file: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error loading file")
         raise HTTPException(status_code=500, detail=f"Error loading file: {str(e)}")
 
 
@@ -108,7 +122,7 @@ async def execute_pipeline(request: PipelineExecuteRequest):
 
     except Exception as e:
         logger.error(f"Pipeline execution error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Pipeline execution failed")
 
 
 @router.post("/pipeline/preview")
@@ -138,6 +152,7 @@ async def preview_pipeline(request: PipelinePreviewRequest):
 
     except Exception as e:
         logger.error(f"Pipeline preview error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Pipeline preview failed")
         raise HTTPException(status_code=500, detail=str(e))
 
 
