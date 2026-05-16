@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse
 from app.config import UPLOAD_DIR, MAX_FILE_SIZE_MB, ALLOWED_EXTENSIONS
 from datetime import datetime, timezone
 
+MAX_RECENT_FILES = 50
+
 router = APIRouter()
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -80,7 +82,7 @@ async def list_files():
         upload_path.iterdir(), 
         key=lambda p: p.stat().st_mtime, 
         reverse=True
-    )[:50]:
+    )[:MAX_RECENT_FILES]:
         if not file_dir.is_dir():
             continue
             

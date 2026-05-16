@@ -8,6 +8,8 @@ import { useGlobalContext } from '@/context/GlobalContext';
 import type { UploadResponse } from '@/types';
 import { clsx } from 'clsx';
 
+const MAX_UPLOADED_FILES = 50;
+
 interface FileUploaderProps {
   onUpload?: (response: UploadResponse) => void;
 }
@@ -43,7 +45,7 @@ export default function FileUploader({ onUpload }: FileUploaderProps) {
         };
         
         // Keep last 50 files
-        const updatedFiles = [newFile, ...uploadedFiles].slice(0, 50);
+        const updatedFiles = [newFile, ...uploadedFiles].slice(0, MAX_UPLOADED_FILES);
         setUploadedFiles(updatedFiles);
         
         setSuccess(`"${response.filename}" uploaded successfully`);

@@ -9,8 +9,10 @@ import type { UploadResponse } from '@/types';
 import { listFiles } from '@/lib/api';
 import Link from 'next/link';
 
-// Delay before navigation to show success message
-const NAVIGATION_DELAY_MS = 800;
+// Display last 5 files in recent uploads section
+const RECENT_FILES_DISPLAY_COUNT = 5;
+// Delay before navigation to allow users to see success message (notification auto-dismisses at 3000ms)
+const NAVIGATION_DELAY_MS = 2000;
 
 export default function HomePage() {
   const router = useRouter();
@@ -175,10 +177,10 @@ export default function HomePage() {
                 <Clock className="w-5 h-5 text-slate-400" />
                 Recent Uploads
               </h3>
-              <span className="text-sm text-slate-500">Last 5 files</span>
+              <span className="text-sm text-slate-500">Last {RECENT_FILES_DISPLAY_COUNT} files</span>
             </div>
             <div className="space-y-2">
-              {uploadedFiles.slice(0, 5).map((file) => (
+              {uploadedFiles.slice(0, RECENT_FILES_DISPLAY_COUNT).map((file) => (
                 <div
                   key={file.file_id}
                   className="flex items-center justify-between p-4 bg-slate-900 border border-slate-800 rounded-lg hover:border-indigo-600 transition-colors"

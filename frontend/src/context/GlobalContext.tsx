@@ -17,6 +17,7 @@ import type {
 const GlobalContext = createContext<GlobalContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'datamind_global_state';
+const NOTIFICATION_DISMISS_TIMEOUT_MS = 3000;
 
 interface StoredState {
   fileId: string | null;
@@ -113,7 +114,7 @@ export function GlobalProvider({ children }: { children: React.ReactNode }) {
       // Auto-dismiss after 3 seconds
       const timeout = setTimeout(() => {
         removeNotification(id);
-      }, 3000);
+      }, NOTIFICATION_DISMISS_TIMEOUT_MS);
 
       timeoutRefsRef.current[id] = timeout;
     },
