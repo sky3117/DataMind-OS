@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Dict, Any, Optional
+from typing import Literal
 from pathlib import Path
 from app.config import UPLOAD_DIR
 import pandas as pd
@@ -39,17 +40,21 @@ class ReporterGenerateRequest(BaseModel):
 
 
 class PredictorTrainRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     file_id: str
     target_column: str
-    features: List[str]
-    model_type: str = "classification"
-    test_size: float = 0.2
+    features: List[str] = Field(min_length=1)
+    model_type: Literal["classification", "regression"] = "classification"
+    test_size: float = Field(default=0.2, gt=0.0, lt=1.0)
     random_state: int = 42
 
 
 class PredictorPredictRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     model_id: str
-    input_data: List[Dict[str, Any]]
+    input_data: List[Dict[str, Any]] = Field(min_length=1)
 
 
 def _load_dataframe(file_id: str) -> pd.DataFrame:
@@ -198,6 +203,8 @@ async def train_predictor(request: PredictorTrainRequest):
 
         return result
 
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -217,7 +224,9 @@ async def make_prediction(request: PredictorPredictRequest):
         return result
 
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        if "not found" in str(e):
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Predictor prediction error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
