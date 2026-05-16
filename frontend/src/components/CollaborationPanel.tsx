@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Users, MessageSquare, Share2, Activity, Send, Wifi, WifiOff } from 'lucide-react';
+import { WS_BASE_URL } from '@/lib/config';
 
 interface CollaborationPanelProps {
   resourceType?: string;
@@ -37,8 +38,7 @@ export default function CollaborationPanel({
 
   const connectWebSocket = () => {
     try {
-      const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${typeof window !== 'undefined' ? window.location.host : 'localhost:8000'}/api/ws/collaboration/${resourceId}`;
+      const wsUrl = `${WS_BASE_URL}/api/ws/collaboration/${resourceId}`;
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
