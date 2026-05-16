@@ -17,6 +17,17 @@ export async function uploadFile(file: File): Promise<import('@/types').UploadRe
   return res.json();
 }
 
+export async function listFiles(): Promise<{ files: import('@/types').UploadedFile[] }> {
+  const res = await fetch(`${API_BASE}/api/files`);
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'List files failed');
+  }
+
+  return res.json();
+}
+
 export async function getProfile(fileId: string): Promise<import('@/types').ProfileResponse> {
   const res = await fetch(`${API_BASE}/api/profile/${fileId}`);
 

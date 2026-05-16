@@ -1,30 +1,36 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useGlobalContext } from '@/context/GlobalContext';
 import FileUploader from '@/components/FileUploader';
-import DataProfile from '@/components/DataProfile';
-import ChatInterface from '@/components/ChatInterface';
-import AutoDashboard from '@/components/AutoDashboard';
+import { Brain, Upload, BarChart3, MessageSquare, LayoutDashboard, ChevronRight, FileText, Clock } from 'lucide-react';
 import type { UploadResponse } from '@/types';
-import { Brain, Upload, BarChart3, MessageSquare, LayoutDashboard, ChevronRight } from 'lucide-react';
-import { clsx } from 'clsx';
-
-type TabId = 'upload' | 'profile' | 'chat' | 'dashboard';
-
-const TABS: { id: TabId; label: string; icon: React.ElementType; requiresFile: boolean }[] = [
-  { id: 'upload', label: 'Upload', icon: Upload, requiresFile: false },
-  { id: 'profile', label: 'Profile', icon: BarChart3, requiresFile: true },
-  { id: 'chat', label: 'AI Chat', icon: MessageSquare, requiresFile: true },
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiresFile: true },
-];
+import { listFiles } from '@/lib/api';
+import Link from 'next/link';
 
 export default function HomePage() {
-  const [activeTab, setActiveTab] = useState<TabId>('upload');
-  const [uploadResponse, setUploadResponse] = useState<UploadResponse | null>(null);
+  const router = useRouter();
+  const { fileId, filename, uploadedFiles, setUploadedFiles } = useGlobalContext();
+  const [isLoadingFiles, setIsLoadingFiles] = useState(true);
+
+  useEffect(() => {
+    const loadFiles = async () => {
+      try {
+        const response = await listFiles();
+        setUploadedFiles(response.files);
+      } catch (err) {
+        console.error('Failed to load files:', err);
+      } finally {
+        setIsLoadingFiles(false);
+      }
+    };
+
+    loadFiles();
+  }, [setUploadedFiles]);
 
   const handleUpload = (response: UploadResponse) => {
-    setUploadResponse(response);
-    setTimeout(() => setActiveTab('profile'), 800);
+    setTimeout(() => router.push('/profile'), 800);
   };
 
   return (
@@ -45,11 +51,11 @@ export default function HomePage() {
               </div>
             </div>
 
-            {uploadResponse && (
+            {fileId && (
               <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400">
                 <div className="w-2 h-2 rounded-full bg-emerald-500" />
                 <span className="text-slate-300 font-medium truncate max-w-48">
-                  {uploadResponse.filename}
+                  {filename}
                 </span>
               </div>
             )}
@@ -59,7 +65,7 @@ export default function HomePage() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Hero */}
-        {!uploadResponse && (
+        {!fileId && (
           <div className="text-center mb-12">
             <h1 className="text-4xl sm:text-5xl font-bold bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent mb-4">
               AI-Powered Data Intelligence
@@ -71,124 +77,126 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="flex items-center gap-1 mb-8 bg-slate-900 border border-slate-800 rounded-2xl p-1.5 w-fit">
-          {TABS.map((tab, i) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            const isDisabled = tab.requiresFile && !uploadResponse;
+        {/* Main content area */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+          {/* Upload section */}
+          <div className="lg:col-span-2">
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold text-slate-200">Upload Dataset</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Supports CSV, XLSX, and XLS files up to 50MB
+              </p>
+            </div>
+            <FileUploader onUpload={handleUpload} />
+          </div>
 
-            return (
-              <div key={tab.id} className="flex items-center">
-                {i > 0 && (
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-700 mx-0.5" />
-                )}
-                <button
-                  onClick={() => !isDisabled && setActiveTab(tab.id)}
-                  disabled={isDisabled}
-                  className={clsx(
-                    'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all',
-                    isActive
-                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50'
-                      : isDisabled
-                      ? 'text-slate-600 cursor-not-allowed'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-                  )}
-                >
-                  <Icon className="w-4 h-4" />
-                  <span className="hidden sm:inline">{tab.label}</span>
-                </button>
-              </div>
-            );
-          })}
+          {/* Quick actions */}
+          <div className="space-y-4">
+            {[
+              {
+                icon: BarChart3,
+                label: 'Profile',
+                href: '/profile',
+                disabled: !fileId,
+                description: 'View data quality',
+              },
+              {
+                icon: MessageSquare,
+                label: 'AI Chat',
+                href: '/chat',
+                disabled: !fileId,
+                description: 'Ask questions',
+              },
+              {
+                icon: LayoutDashboard,
+                label: 'Dashboard',
+                href: '/dashboard',
+                disabled: !fileId,
+                description: 'View charts',
+              },
+            ].map(({ icon: Icon, label, href, disabled, description }) => (
+              <Link
+                key={label}
+                href={href}
+                className={`block p-4 rounded-xl border transition-all ${
+                  disabled
+                    ? 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed opacity-50'
+                    : 'bg-slate-900 border-slate-800 hover:border-indigo-600 text-slate-200 hover:text-indigo-400'
+                }`}
+              >
+                <Icon className="w-5 h-5 mb-2" />
+                <p className="font-medium text-sm">{label}</p>
+                <p className="text-xs text-slate-500 mt-1">{description}</p>
+              </Link>
+            ))}
+          </div>
         </div>
 
-        {/* Tab content */}
-        <div className="animate-fade-in">
-          {activeTab === 'upload' && (
-            <div className="max-w-2xl mx-auto">
-              <div className="mb-6">
-                <h2 className="text-xl font-semibold text-slate-200">Upload Dataset</h2>
-                <p className="text-sm text-slate-500 mt-1">
-                  Supports CSV, XLSX, and XLS files up to 50MB
-                </p>
-              </div>
-              <FileUploader onUpload={handleUpload} />
-
-              {!uploadResponse && (
-                <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {[
-                    {
-                      icon: BarChart3,
-                      title: 'Deep Profiling',
-                      desc: 'Automatic column analysis, null counts, outliers, and health scoring',
-                    },
-                    {
-                      icon: MessageSquare,
-                      title: 'AI Chat',
-                      desc: 'Ask natural language questions powered by Claude',
-                    },
-                    {
-                      icon: LayoutDashboard,
-                      title: 'Auto Dashboard',
-                      desc: 'Beautiful charts generated automatically from your data',
-                    },
-                  ].map(({ icon: Icon, title, desc }) => (
-                    <div key={title} className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                      <Icon className="w-6 h-6 text-indigo-400 mb-3" />
-                      <h3 className="text-sm font-semibold text-slate-200 mb-1">{title}</h3>
-                      <p className="text-xs text-slate-500">{desc}</p>
-                    </div>
-                  ))}
+        {/* Features grid */}
+        {!fileId && (
+          <div className="mb-12">
+            <h3 className="text-lg font-semibold text-slate-200 mb-4">Powerful Features</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {[
+                {
+                  icon: BarChart3,
+                  title: 'Deep Profiling',
+                  desc: 'Automatic column analysis, null counts, outliers, and health scoring',
+                },
+                {
+                  icon: MessageSquare,
+                  title: 'AI Chat',
+                  desc: 'Ask natural language questions powered by Claude',
+                },
+                {
+                  icon: LayoutDashboard,
+                  title: 'Auto Dashboard',
+                  desc: 'Beautiful charts generated automatically from your data',
+                },
+              ].map(({ icon: Icon, title, desc }) => (
+                <div key={title} className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                  <Icon className="w-6 h-6 text-indigo-400 mb-3" />
+                  <h3 className="text-sm font-semibold text-slate-200 mb-1">{title}</h3>
+                  <p className="text-xs text-slate-500">{desc}</p>
                 </div>
-              )}
+              ))}
             </div>
-          )}
+          </div>
+        )}
 
-          {activeTab === 'profile' && uploadResponse && (
-            <div>
-              <div className="mb-6">
-                <h2 className="text-xl font-semibold text-slate-200">Data Profile</h2>
-                <p className="text-sm text-slate-500 mt-1">
-                  Comprehensive analysis of{' '}
-                  <span className="text-slate-300 font-medium">{uploadResponse.filename}</span>
-                </p>
-              </div>
-              <DataProfile fileId={uploadResponse.file_id} />
+        {/* Recent uploads */}
+        {uploadedFiles.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-200 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-slate-400" />
+                Recent Uploads
+              </h3>
+              <span className="text-sm text-slate-500">Last 5 files</span>
             </div>
-          )}
-
-          {activeTab === 'chat' && uploadResponse && (
-            <div>
-              <div className="mb-6">
-                <h2 className="text-xl font-semibold text-slate-200">AI Chat</h2>
-                <p className="text-sm text-slate-500 mt-1">
-                  Ask questions about{' '}
-                  <span className="text-slate-300 font-medium">{uploadResponse.filename}</span>
-                </p>
-              </div>
-              <div className="max-w-3xl mx-auto">
-                <ChatInterface
-                  fileId={uploadResponse.file_id}
-                  filename={uploadResponse.filename}
-                />
-              </div>
+            <div className="space-y-2">
+              {uploadedFiles.slice(0, 5).map((file) => (
+                <div
+                  key={file.file_id}
+                  className="flex items-center justify-between p-4 bg-slate-900 border border-slate-800 rounded-lg hover:border-indigo-600 transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <FileText className="w-5 h-5 text-slate-400 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-200 truncate">
+                        {file.filename}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {(file.size_bytes / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-slate-600 shrink-0" />
+                </div>
+              ))}
             </div>
-          )}
-
-          {activeTab === 'dashboard' && uploadResponse && (
-            <div>
-              <div className="mb-6">
-                <h2 className="text-xl font-semibold text-slate-200">Auto Dashboard</h2>
-                <p className="text-sm text-slate-500 mt-1">
-                  Auto-generated visualizations for{' '}
-                  <span className="text-slate-300 font-medium">{uploadResponse.filename}</span>
-                </p>
-              </div>
-              <AutoDashboard fileId={uploadResponse.file_id} />
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

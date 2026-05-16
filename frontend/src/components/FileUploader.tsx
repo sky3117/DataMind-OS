@@ -4,17 +4,19 @@ import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { uploadFile } from '@/lib/api';
+import { useGlobalContext } from '@/context/GlobalContext';
 import type { UploadResponse } from '@/types';
 import { clsx } from 'clsx';
 
 interface FileUploaderProps {
-  onUpload: (response: UploadResponse) => void;
+  onUpload?: (response: UploadResponse) => void;
 }
 
 export default function FileUploader({ onUpload }: FileUploaderProps) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const { setFileId, setFilename, setUploadedFiles, uploadedFiles, addNotification } = useGlobalContext();
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -27,15 +29,38 @@ export default function FileUploader({ onUpload }: FileUploaderProps) {
 
       try {
         const response = await uploadFile(file);
+        
+        // Save to global context
+        setFileId(response.file_id);
+        setFilename(response.filename);
+        
+        // Add to uploaded files list
+        const newFile = {
+          file_id: response.file_id,
+          filename: response.filename,
+          size_bytes: response.size_bytes,
+          created_at: new Date().toISOString(),
+        };
+        
+        // Keep last 50 files
+        const updatedFiles = [newFile, ...uploadedFiles].slice(0, 50);
+        setUploadedFiles(updatedFiles);
+        
         setSuccess(`"${response.filename}" uploaded successfully`);
-        onUpload(response);
+        addNotification(`Successfully uploaded ${response.filename}`, 'success');
+        
+        if (onUpload) {
+          onUpload(response);
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Upload failed');
+        const message = err instanceof Error ? err.message : 'Upload failed';
+        setError(message);
+        addNotification(message, 'error');
       } finally {
         setUploading(false);
       }
     },
-    [onUpload]
+    [onUpload, setFileId, setFilename, setUploadedFiles, uploadedFiles, addNotification]
   );
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
