@@ -9,6 +9,9 @@ import type { UploadResponse } from '@/types';
 import { listFiles } from '@/lib/api';
 import Link from 'next/link';
 
+// Delay before navigation to show success message
+const NAVIGATION_DELAY_MS = 800;
+
 export default function HomePage() {
   const router = useRouter();
   const { fileId, filename, uploadedFiles, setUploadedFiles } = useGlobalContext();
@@ -30,7 +33,7 @@ export default function HomePage() {
   }, [setUploadedFiles]);
 
   const handleUpload = (response: UploadResponse) => {
-    setTimeout(() => router.push('/profile'), 800);
+    setTimeout(() => router.push('/profile'), NAVIGATION_DELAY_MS);
   };
 
   return (

@@ -91,7 +91,7 @@ async def list_files():
         data_file = data_files[0]
         file_stat = data_file.stat()
         
-        # Get creation time from file stat
+        # Use file modification time as created_at timestamp
         created_at = datetime.fromtimestamp(file_stat.st_mtime).isoformat()
         
         files_data.append({

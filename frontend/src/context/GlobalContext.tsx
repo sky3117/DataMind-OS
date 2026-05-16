@@ -7,36 +7,11 @@ import React, {
   useCallback,
   useEffect,
 } from 'react';
-
-export interface Notification {
-  id: string;
-  message: string;
-  type: 'success' | 'error' | 'info' | 'warning';
-  timestamp: number;
-}
-
-export interface UploadedFile {
-  file_id: string;
-  filename: string;
-  size_bytes: number;
-  created_at: string;
-}
-
-export interface GlobalContextType {
-  fileId: string | null;
-  filename: string | null;
-  fileMetadata: Record<string, unknown> | null;
-  uploadedFiles: UploadedFile[];
-  activeTab: string;
-  notifications: Notification[];
-  setFileId: (fileId: string | null) => void;
-  setFilename: (filename: string | null) => void;
-  setFileMetadata: (metadata: Record<string, unknown> | null) => void;
-  setUploadedFiles: (files: UploadedFile[]) => void;
-  setActiveTab: (tab: string) => void;
-  addNotification: (message: string, type: Notification['type']) => void;
-  removeNotification: (id: string) => void;
-}
+import type { 
+  Notification, 
+  UploadedFile, 
+  GlobalContextType 
+} from '@/types';
 
 const GlobalContext = createContext<GlobalContextType | undefined>(undefined);
 
@@ -58,6 +33,7 @@ export function GlobalProvider({ children }: { children: React.ReactNode }) {
   const [activeTab, setActiveTabState] = useState('home');
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [timeoutRefs, setTimeoutRefs] = useState<Record<string, NodeJS.Timeout>>({});
 
   // Load state from localStorage on mount
   useEffect(() => {
@@ -112,6 +88,19 @@ export function GlobalProvider({ children }: { children: React.ReactNode }) {
     setActiveTabState(tab);
   }, []);
 
+  const removeNotification = useCallback((id: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    // Clear timeout if exists
+    setTimeoutRefs((prev) => {
+      if (prev[id]) {
+        clearTimeout(prev[id]);
+        const { [id]: _, ...rest } = prev;
+        return rest;
+      }
+      return prev;
+    });
+  }, []);
+
   const addNotification = useCallback(
     (message: string, type: Notification['type']) => {
       const id = `notif_${Date.now()}`;
@@ -129,14 +118,17 @@ export function GlobalProvider({ children }: { children: React.ReactNode }) {
         removeNotification(id);
       }, 3000);
 
-      return () => clearTimeout(timeout);
+      setTimeoutRefs((prev) => ({ ...prev, [id]: timeout }));
     },
-    []
+    [removeNotification]
   );
 
-  const removeNotification = useCallback((id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-  }, []);
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(timeoutRefs).forEach(clearTimeout);
+    };
+  }, [timeoutRefs]);
 
   const value: GlobalContextType = {
     fileId,

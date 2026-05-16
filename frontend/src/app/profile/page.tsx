@@ -2,7 +2,7 @@
 
 import { useGlobalContext } from '@/context/GlobalContext';
 import DataProfile from '@/components/DataProfile';
-import { Upload, BarChart3, ArrowRight } from 'lucide-react';
+import { Upload, BarChart3 } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ProfilePage() {
@@ -21,7 +21,7 @@ export default function ProfilePage() {
               Upload a file to view its detailed profile, including statistics, distributions, and data quality metrics.
             </p>
             <Link
-              href="/upload"
+              href="/"
               className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors"
             >
               <Upload className="w-4 h-4" />

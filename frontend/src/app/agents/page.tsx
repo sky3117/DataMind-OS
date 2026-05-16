@@ -21,7 +21,7 @@ export default function AgentsPageWrapper() {
               Upload a file to run specialized AI agents for data cleaning, analysis, reporting, and prediction.
             </p>
             <Link
-              href="/upload"
+              href="/"
               className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors"
             >
               <Upload className="w-4 h-4" />
