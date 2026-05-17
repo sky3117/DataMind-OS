@@ -90,8 +90,11 @@ log "INFO" "Building frontend image with no cache to prevent stale Next.js artif
 docker compose -f "${COMPOSE_FILE}" build --no-cache frontend
 log "INFO" "Frontend image rebuild completed."
 
-log "INFO" "Starting containers with rebuild."
-docker compose -f "${COMPOSE_FILE}" up -d --build
+log "INFO" "Building remaining application images."
+docker compose -f "${COMPOSE_FILE}" build backend nginx
+
+log "INFO" "Starting containers from rebuilt images."
+docker compose -f "${COMPOSE_FILE}" up -d
 
 log "INFO" "Forcing frontend container recreation from freshly built image."
 docker compose -f "${COMPOSE_FILE}" up -d --no-deps --force-recreate frontend
