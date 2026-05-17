@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -18,7 +21,6 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd /home/ubuntu/DataMind-OS
-            git pull origin main
-            docker-compose down
-            docker-compose up -d --build
+            chmod +x scripts/deploy.sh
+            ./scripts/deploy.sh
             echo "Deployed successfully!"
