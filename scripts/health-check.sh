@@ -33,9 +33,9 @@ if [ "${running_services}" -lt "${expected_services}" ]; then
 fi
 
 echo "Checking HTTP ports..."
-for url in "http://localhost/" "http://localhost/api"; do
-  if ! curl -fsS "${url}" >/dev/null; then
-    alert "HTTP check failed for ${url}"
+for url in "https://localhost/" "https://localhost/api"; do
+  if ! curl -kfsS "${url}" >/dev/null; then
+    alert "HTTPS check failed for ${url}"
     exit 1
   fi
 done
