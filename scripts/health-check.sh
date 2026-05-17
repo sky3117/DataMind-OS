@@ -24,7 +24,7 @@ fi
 
 echo "Checking container states..."
 expected_services="$(docker compose -f "${COMPOSE_FILE}" config --services | wc -l | tr -d ' ')"
-running_services="$(docker compose -f "${COMPOSE_FILE}" ps --services --filter "status=running" | wc -l | tr -d ' ')"
+running_services="$(docker compose -f "${COMPOSE_FILE}" ps --services --filter=status=running | wc -l | tr -d ' ')"
 if [ "${running_services}" -lt "${expected_services}" ]; then
   alert "One or more containers are not running (${running_services}/${expected_services})"
   docker compose -f "${COMPOSE_FILE}" ps
