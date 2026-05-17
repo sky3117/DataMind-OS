@@ -828,7 +828,7 @@ export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBu
               disabled={isExecuting || !fileId || nodes.length === 0}
               whileHover={{ scale: isExecuting ? 1 : 1.01 }}
               whileTap={{ scale: isExecuting ? 1 : 0.98 }}
-              className={`flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white shadow-[0_0_22px_rgba(99,102,241,0.85)] disabled:opacity-50 ${isExecuting ? '' : 'motion-safe:animate-pulse'}`}
+              className={`flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white shadow-[0_0_22px_rgba(99,102,241,0.85)] disabled:opacity-50 ${isExecuting ? '' : 'motion-safe:animate-[pulse_1.5s_ease-in-out_2]'}`}
             >
               <Play size={14} /> {isExecuting ? 'Executing...' : 'Execute'}
             </motion.button>

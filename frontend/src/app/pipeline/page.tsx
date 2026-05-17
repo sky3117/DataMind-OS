@@ -36,13 +36,19 @@ export default function PipelinePage() {
 
   return (
     <div className="min-h-screen bg-slate-950">
-      <div className="border-b border-fuchsia-300/60 bg-gradient-to-r from-fuchsia-600 via-indigo-500 to-cyan-500 px-4 py-3 text-center shadow-[0_0_28px_rgba(217,70,239,0.75)]">
-        <span className="text-base font-extrabold tracking-wide text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.85)]">
+      <div
+        className="border-b border-fuchsia-300/60 bg-gradient-to-r from-fuchsia-600 via-indigo-500 to-cyan-500 px-4 py-3 text-center shadow-[0_0_28px_rgba(217,70,239,0.75)]"
+        aria-live="polite"
+      >
+        <span
+          aria-label="CI/CD Auto Deploy Test Successful"
+          className="text-base font-extrabold tracking-wide text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.85)]"
+        >
           🚀 CI/CD Auto Deploy Test Successful
         </span>
       </div>
 
-      <div className="fixed right-4 top-4 z-50 rounded-full border border-emerald-300/80 bg-emerald-500/30 px-4 py-2 text-xs font-extrabold uppercase tracking-wider text-emerald-100 shadow-[0_0_26px_rgba(16,185,129,0.9)] backdrop-blur-md">
+      <div className="pointer-events-none fixed right-2 top-2 z-50 rounded-full border border-emerald-300/80 bg-emerald-500/30 px-4 py-2 text-[10px] font-extrabold uppercase tracking-wider text-emerald-100 shadow-[0_0_26px_rgba(16,185,129,0.9)] backdrop-blur-md sm:right-4 sm:top-4 sm:text-xs">
         Production Build Active
       </div>
 
