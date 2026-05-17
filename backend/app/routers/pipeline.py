@@ -1,17 +1,22 @@
-import time
-from fastapi import APIRouter, HTTPException, File, UploadFile
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
-from pathlib import Path
-from app.config import UPLOAD_DIR
-import pandas as pd
 import logging
-import asyncio
+import re
+import time
+import uuid
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
+import pandas as pd
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+
+from app.config import UPLOAD_DIR
 from app.services.pipeline_executor import PipelineExecutor
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 class PipelineNodeConfig(BaseModel):
@@ -57,52 +62,64 @@ class PipelineSaveRequest(BaseModel):
     edges: List[PipelineEdge]
 
 
-_pipelines = {}
+_pipelines: Dict[str, Dict[str, Any]] = {}
 _pipeline_counter = 0
 
 
-def _load_dataframe(file_id: str) -> pd.DataFrame:
-    """Load dataframe from uploaded file."""
-    # Validate file_id to prevent directory traversal
-    if ".." in file_id or "/" in file_id or "\\" in file_id:
+def _resolve_file(file_id: str) -> Path:
+    if not _SAFE_ID_PATTERN.fullmatch(file_id):
         raise HTTPException(status_code=400, detail="Invalid file ID")
-    
-    file_dir = Path(UPLOAD_DIR) / file_id
-    
-    # Ensure the resolved path is still within UPLOAD_DIR
+
+    upload_root = Path(UPLOAD_DIR).resolve()
+    if not upload_root.exists() or not upload_root.is_dir():
+        raise HTTPException(status_code=404, detail="Upload directory not found")
+
+    matching_dirs = [p for p in upload_root.iterdir() if p.is_dir() and p.name == file_id]
+    if not matching_dirs:
+        raise HTTPException(status_code=404, detail="File not found")
+    file_dir = matching_dirs[0]
+
     try:
-        file_dir.resolve().relative_to(Path(UPLOAD_DIR).resolve())
+        file_dir.resolve().relative_to(upload_root)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid file ID")
-    
-    if not file_dir.exists():
-        raise HTTPException(status_code=404, detail="File not found")
 
-    files = list(file_dir.iterdir())
+    files = [p for p in file_dir.iterdir() if p.is_file()]
     if not files:
         raise HTTPException(status_code=404, detail="No files found")
 
-    file_path = files[0]
+    return files[0]
+
+
+def _load_dataframe(file_id: str) -> pd.DataFrame:
+    file_path = _resolve_file(file_id)
     ext = file_path.suffix.lower()
 
     try:
-        if ext in [".csv"]:
+        if ext == ".csv":
             return pd.read_csv(file_path)
-        elif ext in [".xlsx", ".xls"]:
+        if ext in {".xlsx", ".xls"}:
             return pd.read_excel(file_path)
-        else:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error loading file: {str(e)}")
+    except Exception as exc:
+        logger.error(f"Error loading file: {exc}")
         raise HTTPException(status_code=500, detail="Error loading file")
-        raise HTTPException(status_code=500, detail=f"Error loading file: {str(e)}")
+
+
+def _save_result_csv(df: pd.DataFrame) -> str:
+    result_file_id = str(uuid.uuid4())
+    result_dir = Path(UPLOAD_DIR) / result_file_id
+    result_dir.mkdir(parents=True, exist_ok=False)
+    output_path = result_dir / "data.csv"
+    df.to_csv(output_path, index=False)
+    return result_file_id
 
 
 @router.post("/pipeline/execute")
 async def execute_pipeline(request: PipelineExecuteRequest):
-    """Execute a pipeline with the given nodes and edges."""
+    """Execute pipeline and persist output CSV for download/reuse."""
     try:
         start_time = time.time()
 
@@ -113,16 +130,42 @@ async def execute_pipeline(request: PipelineExecuteRequest):
         edges = [edge.model_dump() for edge in request.edges]
 
         result = await executor.execute_pipeline(nodes, edges, df)
+        if not result.get("success"):
+            logger.warning("Pipeline execution failed for file_id=%s: %s", request.file_id, result.get("error"))
+            raise HTTPException(status_code=400, detail="Pipeline execution failed")
 
+        if executor.last_output_df is None:
+            raise HTTPException(status_code=500, detail="Pipeline produced no output")
+
+        cleaned_file_id = _save_result_csv(executor.last_output_df)
         execution_time_ms = int((time.time() - start_time) * 1000)
-        result["execution_id"] = f"exec_{int(time.time() * 1000)}"
-        result["execution_time_ms"] = execution_time_ms
 
-        return result
+        return {
+            **result,
+            "execution_id": f"exec_{int(time.time() * 1000)}",
+            "execution_time_ms": execution_time_ms,
+            "cleaned_file_id": cleaned_file_id,
+            "cleaned_filename": "data.csv",
+            "download_url": f"/api/pipeline/download/{cleaned_file_id}",
+            "source_file_id": request.file_id,
+        }
 
-    except Exception as e:
-        logger.error(f"Pipeline execution error: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Pipeline execution error: {exc}")
         raise HTTPException(status_code=500, detail="Pipeline execution failed")
+
+
+@router.get("/pipeline/download/{file_id}")
+async def download_pipeline_result(file_id: str):
+    """Download generated pipeline result CSV by file id."""
+    file_path = _resolve_file(file_id)
+    return FileResponse(
+        path=file_path,
+        media_type="text/csv",
+        filename=file_path.name,
+    )
 
 
 @router.post("/pipeline/preview")
@@ -132,7 +175,6 @@ async def preview_pipeline(request: PipelinePreviewRequest):
         start_time = time.time()
 
         df = _load_dataframe(request.file_id)
-
         sample_df = df.head(request.sample_size)
 
         executor = PipelineExecutor()
@@ -140,20 +182,27 @@ async def preview_pipeline(request: PipelinePreviewRequest):
         edges = [edge.model_dump() for edge in request.edges]
 
         result = await executor.execute_pipeline(nodes, edges, sample_df)
+        if not result.get("success"):
+            logger.warning("Pipeline preview failed for file_id=%s: %s", request.file_id, result.get("error"))
+            raise HTTPException(status_code=400, detail="Pipeline preview failed")
+        if executor.last_output_df is None:
+            raise HTTPException(status_code=500, detail="Pipeline preview output missing")
 
         execution_time_ms = int((time.time() - start_time) * 1000)
+        preview_df = executor.last_output_df.head(20).where(pd.notna(executor.last_output_df.head(20)), None)
 
         return {
-            "preview_data": result.get("output_data", []),
-            "row_count": result.get("row_count", 0),
+            "preview_data": preview_df.to_dict("records"),
+            "row_count": int(len(executor.last_output_df)),
             "execution_time_ms": execution_time_ms,
-            "nodes_executed": list(result.get("node_results", {}).keys()),
+            "nodes_executed": list(executor.node_results.keys()),
         }
 
-    except Exception as e:
-        logger.error(f"Pipeline preview error: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Pipeline preview error: {exc}")
         raise HTTPException(status_code=500, detail="Pipeline preview failed")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/pipeline/saved")
@@ -169,14 +218,14 @@ async def list_saved_pipelines(file_id: Optional[str] = None):
             "pipelines": pipelines,
             "total": len(pipelines),
         }
-    except Exception as e:
-        logger.error(f"Error listing pipelines: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.error(f"Error listing pipelines: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to list pipelines")
 
 
 @router.post("/pipeline/save")
 async def save_pipeline(request: PipelineSaveRequest):
-    """Save a pipeline."""
+    """Save pipeline metadata in memory."""
     try:
         global _pipeline_counter
         _pipeline_counter += 1
@@ -203,6 +252,6 @@ async def save_pipeline(request: PipelineSaveRequest):
             "created_at": pipeline_obj["created_at"],
         }
 
-    except Exception as e:
-        logger.error(f"Error saving pipeline: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.error(f"Error saving pipeline: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to save pipeline")
