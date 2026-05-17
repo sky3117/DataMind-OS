@@ -131,7 +131,8 @@ async def execute_pipeline(request: PipelineExecuteRequest):
 
         result = await executor.execute_pipeline(nodes, edges, df)
         if not result.get("success"):
-            raise HTTPException(status_code=400, detail=result.get("error", "Pipeline execution failed"))
+            logger.warning("Pipeline execution failed for file_id=%s: %s", request.file_id, result.get("error"))
+            raise HTTPException(status_code=400, detail="Pipeline execution failed")
 
         if executor.last_output_df is None:
             raise HTTPException(status_code=500, detail="Pipeline produced no output")
@@ -182,7 +183,8 @@ async def preview_pipeline(request: PipelinePreviewRequest):
 
         result = await executor.execute_pipeline(nodes, edges, sample_df)
         if not result.get("success"):
-            raise HTTPException(status_code=400, detail=result.get("error", "Pipeline preview failed"))
+            logger.warning("Pipeline preview failed for file_id=%s: %s", request.file_id, result.get("error"))
+            raise HTTPException(status_code=400, detail="Pipeline preview failed")
 
         execution_time_ms = int((time.time() - start_time) * 1000)
 
