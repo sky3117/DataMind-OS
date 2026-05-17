@@ -10,8 +10,7 @@ HEALTH_POLL_INTERVAL_SECONDS="${HEALTH_POLL_INTERVAL_SECONDS:-5}"
 PRESERVE_PATTERNS=(
   ".env"
   ".env.*"
-  "nginx/certs"
-  "nginx/certs/**"
+  "nginx/certs/"
 )
 
 log() {
@@ -80,7 +79,7 @@ git clean "${clean_args[@]}"
 
 log "INFO" "Pulling latest code from ${GIT_REMOTE}/${GIT_BRANCH}."
 if ! git pull --ff-only "${GIT_REMOTE}" "${GIT_BRANCH}"; then
-  fail "Git pull failed. Ensure ${PROJECT_DIR} is aligned with ${GIT_REMOTE}/${GIT_BRANCH} and has no branch divergence."
+  fail "Git fast-forward pull failed. Local branch may have diverged from ${GIT_REMOTE}/${GIT_BRANCH}. Align the branch and retry deployment."
 fi
 
 log "INFO" "Stopping existing containers."
@@ -97,8 +96,9 @@ if [ "${running_services}" -lt "${expected_services}" ]; then
 fi
 
 log "INFO" "Validating health status of running containers."
-container_id_output="$(docker compose -f "${COMPOSE_FILE}" ps -q --filter=status=running)" || fail "Failed to list running containers."
-mapfile -t container_ids <<<"${container_id_output}"
+if ! mapfile -t container_ids < <(docker compose -f "${COMPOSE_FILE}" ps -q --filter=status=running); then
+  fail "Failed to list running containers."
+fi
 [ "${#container_ids[@]}" -gt 0 ] || fail "No running containers were found after deployment."
 
 for container_id in "${container_ids[@]}"; do
