@@ -84,7 +84,7 @@ interface StoredPipeline {
 }
 
 const STORAGE_KEY = 'datamind:pipeline-builder:saved';
-const DEPLOYMENT_VERSION = 'v2.6.0';
+const DEPLOYMENT_VERSION = 'Deploy-Test-V2';
 
 const NODE_META: Record<NodeKind, { label: string; color: string }> = {
   source: { label: 'Source', color: '#8b5cf6' },
@@ -791,8 +791,8 @@ export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBu
           <div className="rounded-lg border border-emerald-500/30 bg-slate-950/80 px-3 py-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-slate-400">Deployment</span>
-              <span className="rounded-full border border-emerald-400/40 bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-200">
-                {DEPLOYMENT_VERSION}
+              <span className="rounded-full border border-emerald-300/80 bg-emerald-500/30 px-2 py-0.5 text-[10px] font-extrabold text-emerald-100 shadow-[0_0_14px_rgba(16,185,129,0.8)]">
+                Version: {DEPLOYMENT_VERSION}
               </span>
             </div>
             <div className="mt-1 font-semibold text-emerald-200">Build: CI/CD Verified</div>
@@ -828,7 +828,7 @@ export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBu
               disabled={isExecuting || !fileId || nodes.length === 0}
               whileHover={{ scale: isExecuting ? 1 : 1.01 }}
               whileTap={{ scale: isExecuting ? 1 : 0.98 }}
-              className="flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className={`flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white shadow-[0_0_22px_rgba(99,102,241,0.85)] disabled:opacity-50 ${isExecuting ? '' : 'animate-pulse'}`}
             >
               <Play size={14} /> {isExecuting ? 'Executing...' : 'Execute'}
             </motion.button>
@@ -888,7 +888,7 @@ export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBu
           initial={{ opacity: 0, x: 8 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.35, delay: 0.1 }}
-          className="relative overflow-hidden rounded-xl border border-cyan-500/20 bg-slate-900/70"
+          className="relative overflow-hidden rounded-xl border-2 border-cyan-300 bg-slate-900/70 shadow-[0_0_0_1px_rgba(103,232,249,0.8),0_0_28px_rgba(34,211,238,0.85),0_0_48px_rgba(217,70,239,0.55)]"
         >
           <motion.div
             className="pointer-events-none absolute inset-0 opacity-40"
