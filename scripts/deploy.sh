@@ -36,6 +36,7 @@ wait_for_container_health() {
   local container_name status health
 
   container_name="$(docker inspect --format '{{.Name}}' "${container_id}" 2>/dev/null | sed 's#^/##')"
+  [ -n "${container_name}" ] || container_name="${container_id}"
 
   while [ "${SECONDS}" -lt "${deadline}" ]; do
     status="$(docker inspect --format '{{.State.Status}}' "${container_id}" 2>/dev/null || echo 'missing')"
@@ -96,9 +97,8 @@ if [ "${running_services}" -lt "${expected_services}" ]; then
 fi
 
 log "INFO" "Validating health status of running containers."
-if ! mapfile -t container_ids < <(docker compose -f "${COMPOSE_FILE}" ps -q --filter=status=running); then
-  fail "Failed to list running containers."
-fi
+container_id_output="$(docker compose -f "${COMPOSE_FILE}" ps -q --filter=status=running)" || fail "Failed to list running containers."
+mapfile -t container_ids <<<"${container_id_output}"
 [ "${#container_ids[@]}" -gt 0 ] || fail "No running containers were found after deployment."
 
 for container_id in "${container_ids[@]}"; do
