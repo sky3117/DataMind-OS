@@ -185,14 +185,17 @@ async def preview_pipeline(request: PipelinePreviewRequest):
         if not result.get("success"):
             logger.warning("Pipeline preview failed for file_id=%s: %s", request.file_id, result.get("error"))
             raise HTTPException(status_code=400, detail="Pipeline preview failed")
+        if executor.last_output_df is None:
+            raise HTTPException(status_code=500, detail="Pipeline preview output missing")
 
         execution_time_ms = int((time.time() - start_time) * 1000)
+        preview_df = executor.last_output_df.head(20).where(pd.notna(executor.last_output_df.head(20)), None)
 
         return {
-            "preview_data": result.get("preview", []),
-            "row_count": result.get("row_count", 0),
+            "preview_data": preview_df.to_dict("records"),
+            "row_count": int(len(executor.last_output_df)),
             "execution_time_ms": execution_time_ms,
-            "nodes_executed": list(result.get("node_results", {}).keys()),
+            "nodes_executed": list(executor.node_results.keys()),
         }
 
     except HTTPException:
