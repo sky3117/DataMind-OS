@@ -86,8 +86,16 @@ fi
 log "INFO" "Stopping existing containers."
 docker compose -f "${COMPOSE_FILE}" down --remove-orphans
 
+log "INFO" "Building frontend image with no cache to prevent stale Next.js artifacts."
+docker compose -f "${COMPOSE_FILE}" build --no-cache frontend
+log "INFO" "Frontend image rebuild completed."
+
 log "INFO" "Starting containers with rebuild."
 docker compose -f "${COMPOSE_FILE}" up -d --build
+
+log "INFO" "Forcing frontend container recreation from freshly built image."
+docker compose -f "${COMPOSE_FILE}" up -d --no-deps --force-recreate frontend
+log "INFO" "Frontend container recreated successfully."
 
 expected_services="$(docker compose -f "${COMPOSE_FILE}" config --services | wc -l | tr -d ' ')"
 running_services="$(docker compose -f "${COMPOSE_FILE}" ps --services --filter=status=running | wc -l | tr -d ' ')"
