@@ -7,7 +7,7 @@ GIT_REMOTE="${GIT_REMOTE:-origin}"
 GIT_BRANCH="${GIT_BRANCH:-main}"
 HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-180}"
 HEALTH_POLL_INTERVAL_SECONDS="${HEALTH_POLL_INTERVAL_SECONDS:-5}"
-OTHER_BUILD_SERVICES="${OTHER_BUILD_SERVICES:-backend nginx}"
+OTHER_BUILD_SERVICES_CSV="${OTHER_BUILD_SERVICES_CSV:-backend,nginx}"
 PRESERVE_PATTERNS=(
   ".env"
   ".env.*"
@@ -91,8 +91,11 @@ log "INFO" "Building frontend image with no cache to prevent stale Next.js artif
 docker compose -f "${COMPOSE_FILE}" build --no-cache frontend
 log "INFO" "Frontend image rebuild completed."
 
-log "INFO" "Building remaining application images: ${OTHER_BUILD_SERVICES}."
-docker compose -f "${COMPOSE_FILE}" build ${OTHER_BUILD_SERVICES}
+IFS=',' read -r -a other_build_services <<<"${OTHER_BUILD_SERVICES_CSV}"
+if [ "${#other_build_services[@]}" -gt 0 ]; then
+  log "INFO" "Building remaining application images with cache: ${other_build_services[*]}."
+  docker compose -f "${COMPOSE_FILE}" build "${other_build_services[@]}"
+fi
 
 mapfile -t all_services < <(docker compose -f "${COMPOSE_FILE}" config --services)
 core_services=()
