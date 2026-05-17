@@ -23,9 +23,9 @@ if [ ! -f "${COMPOSE_FILE}" ]; then
 fi
 
 echo "Checking container states..."
-if docker-compose -f "${COMPOSE_FILE}" ps --services --filter "status=exited" | grep -q .; then
+if docker compose -f "${COMPOSE_FILE}" ps --services --filter "status=exited" | grep -q .; then
   alert "One or more containers are stopped"
-  docker-compose -f "${COMPOSE_FILE}" ps
+  docker compose -f "${COMPOSE_FILE}" ps
   exit 1
 fi
 
@@ -38,7 +38,7 @@ for url in "http://localhost/" "http://localhost/api"; do
 done
 
 echo "Checking database connectivity..."
-if ! docker-compose -f "${COMPOSE_FILE}" exec -T postgres pg_isready -U datamind >/dev/null; then
+if ! docker compose -f "${COMPOSE_FILE}" exec -T postgres pg_isready -U datamind >/dev/null; then
   alert "Database connection check failed"
   exit 1
 fi
