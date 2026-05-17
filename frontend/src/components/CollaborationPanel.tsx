@@ -135,13 +135,13 @@ export default function CollaborationPanel({
   };
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-lg shadow">
-      <div className="flex items-center justify-between p-4 border-b">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
+    <div className="flex h-full flex-col rounded-xl border border-cyan-500/20 bg-slate-900/75 shadow-[0_0_24px_rgba(34,211,238,0.12)] backdrop-blur-xl">
+      <div className="flex items-center justify-between border-b border-slate-700/80 p-4">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-100">
           <Users size={20} />
           Collaboration
           <div
-            className={isConnected ? 'text-green-600' : 'text-gray-400'}
+            className={isConnected ? 'text-emerald-400' : 'text-slate-500'}
             title={isConnected ? 'Connected' : 'Disconnected'}
           >
             {isConnected ? (
@@ -154,8 +154,8 @@ export default function CollaborationPanel({
         <div className="flex gap-2">
           <button
             onClick={() => setActiveTab('comments')}
-            className={`p-2 rounded hover:bg-gray-100 ${
-              activeTab === 'comments' ? 'bg-blue-100 text-blue-600' : ''
+            className={`rounded-lg p-2 transition-all hover:bg-slate-800 ${
+              activeTab === 'comments' ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-400'
             }`}
             title="Comments"
           >
@@ -163,8 +163,8 @@ export default function CollaborationPanel({
           </button>
           <button
             onClick={() => setActiveTab('activity')}
-            className={`p-2 rounded hover:bg-gray-100 ${
-              activeTab === 'activity' ? 'bg-blue-100 text-blue-600' : ''
+            className={`rounded-lg p-2 transition-all hover:bg-slate-800 ${
+              activeTab === 'activity' ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-400'
             }`}
             title="Activity"
           >
@@ -172,8 +172,8 @@ export default function CollaborationPanel({
           </button>
           <button
             onClick={() => setActiveTab('share')}
-            className={`p-2 rounded hover:bg-gray-100 ${
-              activeTab === 'share' ? 'bg-blue-100 text-blue-600' : ''
+            className={`rounded-lg p-2 transition-all hover:bg-slate-800 ${
+              activeTab === 'share' ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-400'
             }`}
             title="Share"
           >
@@ -182,21 +182,21 @@ export default function CollaborationPanel({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-4 text-slate-200">
         {activeTab === 'comments' && (
           <div className="space-y-4">
             <div className="space-y-3">
               {comments.length === 0 ? (
-                <p className="text-gray-500 text-sm text-center py-4">
-                  No comments yet
-                </p>
-              ) : (
-                comments.map((comment: any) => (
-                  <div key={comment.id} className="bg-gray-50 rounded p-3">
+                  <p className="py-4 text-center text-sm text-slate-400">
+                    No comments yet
+                  </p>
+                ) : (
+                  comments.map((comment: any) => (
+                    <div key={comment.id} className="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
                     <div className="flex justify-between items-start">
                       <div>
                         <p className="font-medium text-sm">{comment.author}</p>
-                        <p className="text-xs text-gray-500">
+                          <p className="text-xs text-slate-400">
                           {new Date(comment.created_at).toLocaleString()}
                         </p>
                       </div>
@@ -217,19 +217,19 @@ export default function CollaborationPanel({
         {activeTab === 'activity' && (
           <div className="space-y-3">
             {activities.length === 0 ? (
-              <p className="text-gray-500 text-sm text-center py-4">
-                No activities yet
-              </p>
-            ) : (
-              activities.map((activity: any) => (
-                <div key={activity.id} className="flex items-start gap-3 text-sm">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 flex-shrink-0" />
-                  <div>
-                    <p className="font-medium">{activity.user}</p>
-                    <p className="text-gray-600">
-                      {activity.action} {activity.resource_type}
-                    </p>
-                    <p className="text-xs text-gray-500">
+                  <p className="py-4 text-center text-sm text-slate-400">
+                    No activities yet
+                  </p>
+                ) : (
+                  activities.map((activity: any) => (
+                    <div key={activity.id} className="flex items-start gap-3 text-sm">
+                      <div className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-cyan-400" />
+                      <div>
+                        <p className="font-medium text-slate-200">{activity.user}</p>
+                        <p className="text-slate-300">
+                          {activity.action} {activity.resource_type}
+                        </p>
+                        <p className="text-xs text-slate-400">
                       {new Date(activity.timestamp).toLocaleString()}
                     </p>
                   </div>
@@ -253,12 +253,12 @@ export default function CollaborationPanel({
                     e.target.value.split(',').map((s) => s.trim())
                   )
                 }
-                className="w-full px-3 py-2 border rounded text-sm"
+                className="w-full rounded border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100"
               />
             </div>
             <button
               onClick={shareResource}
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+              className="w-full rounded bg-cyan-600 px-4 py-2 text-sm text-white transition-colors hover:bg-cyan-500"
             >
               Share Resource
             </button>
@@ -267,7 +267,7 @@ export default function CollaborationPanel({
       </div>
 
       {activeTab === 'comments' && (
-        <div className="p-4 border-t bg-gray-50">
+        <div className="border-t border-slate-700 bg-slate-900/80 p-4">
           <div className="flex gap-2">
             <input
               type="text"
@@ -275,11 +275,11 @@ export default function CollaborationPanel({
               onChange={(e) => setNewComment(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && addComment()}
               placeholder="Add a comment..."
-              className="flex-1 px-3 py-2 border rounded text-sm"
+              className="flex-1 rounded border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100"
             />
             <button
               onClick={addComment}
-              className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              className="rounded bg-cyan-600 px-3 py-2 text-white transition-colors hover:bg-cyan-500"
               title="Send"
             >
               <Send size={16} />
