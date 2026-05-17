@@ -7,6 +7,12 @@ GIT_REMOTE="${GIT_REMOTE:-origin}"
 GIT_BRANCH="${GIT_BRANCH:-main}"
 HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-180}"
 HEALTH_POLL_INTERVAL_SECONDS="${HEALTH_POLL_INTERVAL_SECONDS:-5}"
+PRESERVE_PATTERNS=(
+  ".env"
+  ".env.*"
+  "nginx/certs"
+  "nginx/certs/**"
+)
 
 log() {
   local level="$1"
@@ -66,10 +72,16 @@ log "INFO" "Discarding tracked local changes."
 git reset --hard HEAD
 
 log "INFO" "Removing untracked files while preserving .env and nginx/certs."
-git clean -fdx -e .env -e '.env.*' -e nginx/certs -e 'nginx/certs/**'
+clean_args=(-fdx)
+for pattern in "${PRESERVE_PATTERNS[@]}"; do
+  clean_args+=(-e "${pattern}")
+done
+git clean "${clean_args[@]}"
 
 log "INFO" "Pulling latest code from ${GIT_REMOTE}/${GIT_BRANCH}."
-git pull --ff-only "${GIT_REMOTE}" "${GIT_BRANCH}"
+if ! git pull --ff-only "${GIT_REMOTE}" "${GIT_BRANCH}"; then
+  fail "Git pull failed. Ensure ${PROJECT_DIR} is aligned with ${GIT_REMOTE}/${GIT_BRANCH} and has no branch divergence."
+fi
 
 log "INFO" "Stopping existing containers."
 docker compose -f "${COMPOSE_FILE}" down --remove-orphans
@@ -77,9 +89,16 @@ docker compose -f "${COMPOSE_FILE}" down --remove-orphans
 log "INFO" "Starting containers with rebuild."
 docker compose -f "${COMPOSE_FILE}" up -d --build
 
-log "INFO" "Validating container health."
-container_ids="$(docker compose -f "${COMPOSE_FILE}" ps -q)"
-[ -n "${container_ids}" ] || fail "No containers were started by docker compose."
+expected_services="$(docker compose -f "${COMPOSE_FILE}" config --services | wc -l | tr -d ' ')"
+running_services="$(docker compose -f "${COMPOSE_FILE}" ps --services --filter status=running | wc -l | tr -d ' ')"
+if [ "${running_services}" -lt "${expected_services}" ]; then
+  docker compose -f "${COMPOSE_FILE}" ps
+  fail "Not all services are running after startup (${running_services}/${expected_services})."
+fi
+
+log "INFO" "Validating health status of running containers."
+container_ids="$(docker compose -f "${COMPOSE_FILE}" ps -q --status running)"
+[ -n "${container_ids}" ] || fail "No running containers were found after deployment."
 
 for container_id in ${container_ids}; do
   wait_for_container_health "${container_id}"
