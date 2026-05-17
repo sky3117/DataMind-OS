@@ -10,6 +10,8 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Ensure runner-stage COPY succeeds even when source repo has no public/ directory.
+RUN mkdir -p public
 ENV NEXT_TELEMETRY_DISABLED 1
 RUN npm run build
 
