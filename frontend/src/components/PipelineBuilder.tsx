@@ -1,223 +1,889 @@
 'use client';
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactFlow, {
-  Node,
-  Edge,
-  Controls,
-  Background,
-  useNodesState,
-  useEdgesState,
   addEdge,
+  Background,
   Connection,
-  Panel,
+  Controls,
+  Edge,
+  Handle,
+  Node,
+  NodeProps,
+  Position,
+  ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Plus, Play, Save } from 'lucide-react';
+import { Download, Play, Plus, Save } from 'lucide-react';
 
-const NODE_TYPES = [
-  { id: 'source', label: 'Source', color: '#8b5cf6' },
-  { id: 'filter', label: 'Filter', color: '#3b82f6' },
-  { id: 'transform', label: 'Transform', color: '#10b981' },
-  { id: 'aggregate', label: 'Aggregate', color: '#f59e0b' },
-  { id: 'join', label: 'Join', color: '#ec4899' },
-  { id: 'ai_transform', label: 'AI Transform', color: '#06b6d4' },
-  { id: 'output', label: 'Output', color: '#ef4444' },
-];
+import { useGlobalContext } from '@/context/GlobalContext';
+import { API_BASE_URL } from '@/lib/config';
+import { executePipeline, getProfile } from '@/lib/api';
+
+type NodeKind = 'source' | 'filter' | 'transform' | 'aggregate' | 'output';
+
+type Condition = 'equals' | 'greater_than' | 'less_than' | 'contains' | 'not_null' | 'is_null';
+
+type TransformOperation =
+  | 'rename_column'
+  | 'drop_column'
+  | 'fill_nulls_mean'
+  | 'fill_nulls_median'
+  | 'fill_nulls_zero'
+  | 'uppercase'
+  | 'lowercase';
+
+type AggregateFn = 'sum' | 'mean' | 'count' | 'min' | 'max';
 
 interface PipelineBuilderProps {
   fileId?: string;
   onPipelineChange?: (nodes: Node[], edges: Edge[]) => void;
 }
 
-const NodeComponent = ({ data, id, selected }: any) => {
-  const backgroundColor = (data.color || '#8b5cf6') + (selected ? 'FF' : 'CC');
-  return (
-    <div
-      className="px-4 py-2 rounded-lg border-2 border-solid text-white font-medium shadow-lg"
-      style={{
-        backgroundColor,
-        borderColor: selected ? '#ffffff' : (data.color || '#8b5cf6'),
-      }}
-    >
-      {data.label}
-    </div>
-  );
+interface PipelineNodeData {
+  label: string;
+  nodeType: NodeKind;
+  color: string;
+  config: Record<string, unknown>;
+  columns: string[];
+  filename?: string;
+  rowCount: number;
+  colCount: number;
+  outputPreview: Record<string, unknown>[];
+  outputRowCount?: number;
+  isExecuting?: boolean;
+  onConfigChange?: (nodeId: string, patch: Record<string, unknown>) => void;
+  onDownload?: () => void;
+}
+
+interface ExecutionResult {
+  success: boolean;
+  execution_id: string;
+  execution_time_ms: number;
+  rows_before: number;
+  rows_after: number;
+  preview: Record<string, unknown>[];
+  columns: string[];
+  cleaned_file_id?: string;
+  download_url?: string;
+  error?: string;
+}
+
+interface StoredPipeline {
+  id: string;
+  name: string;
+  fileId?: string;
+  nodes: Node[];
+  edges: Edge[];
+  createdAt: string;
+}
+
+const STORAGE_KEY = 'datamind:pipeline-builder:saved';
+
+const NODE_META: Record<NodeKind, { label: string; color: string }> = {
+  source: { label: 'Source', color: '#8b5cf6' },
+  filter: { label: 'Filter', color: '#3b82f6' },
+  transform: { label: 'Transform', color: '#10b981' },
+  aggregate: { label: 'Aggregate', color: '#f59e0b' },
+  output: { label: 'Output', color: '#ef4444' },
 };
 
-export default function PipelineBuilder({
-  fileId,
-  onPipelineChange,
-}: PipelineBuilderProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+const FILTER_CONDITIONS: { label: string; value: Condition }[] = [
+  { label: 'Equals', value: 'equals' },
+  { label: 'Greater than', value: 'greater_than' },
+  { label: 'Less than', value: 'less_than' },
+  { label: 'Contains', value: 'contains' },
+  { label: 'Not null', value: 'not_null' },
+  { label: 'Is null', value: 'is_null' },
+];
+
+const TRANSFORM_OPS: { label: string; value: TransformOperation }[] = [
+  { label: 'Rename column', value: 'rename_column' },
+  { label: 'Drop column', value: 'drop_column' },
+  { label: 'Fill nulls with mean', value: 'fill_nulls_mean' },
+  { label: 'Fill nulls with median', value: 'fill_nulls_median' },
+  { label: 'Fill nulls with 0', value: 'fill_nulls_zero' },
+  { label: 'Convert to uppercase', value: 'uppercase' },
+  { label: 'Convert to lowercase', value: 'lowercase' },
+];
+
+const AGG_OPS: AggregateFn[] = ['sum', 'mean', 'count', 'min', 'max'];
+
+function NodeShell({
+  title,
+  color,
+  children,
+}: {
+  title: string;
+  color: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-xl">
+      <div className="rounded-t-xl px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: color }}>
+        {title}
+      </div>
+      <div className="space-y-2 px-3 py-3 text-xs text-slate-200">{children}</div>
+    </div>
+  );
+}
+
+function SourceNode({ data }: NodeProps<PipelineNodeData>) {
+  return (
+    <NodeShell title="Source" color={NODE_META.source.color}>
+      <div className="text-slate-300">File: <span className="text-slate-100">{data.filename ?? 'No file'}</span></div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded bg-slate-800 px-2 py-1">Rows: <b>{data.rowCount || 0}</b></div>
+        <div className="rounded bg-slate-800 px-2 py-1">Cols: <b>{data.colCount || 0}</b></div>
+      </div>
+      <Handle type="source" position={Position.Right} className="!bg-violet-400" />
+    </NodeShell>
+  );
+}
+
+function FilterNode({ id, data }: NodeProps<PipelineNodeData>) {
+  const config = data.config;
+  const column = String(config.column ?? '');
+  const condition = String(config.condition ?? 'equals');
+  const value = String(config.value ?? '');
+
+  const estimatedRows = Math.max(
+    0,
+    condition === 'is_null'
+      ? Math.round(data.rowCount * 0.1)
+      : condition === 'not_null'
+      ? Math.round(data.rowCount * 0.9)
+      : Math.round(data.rowCount * 0.5)
+  );
+
+  return (
+    <NodeShell title="Filter" color={NODE_META.filter.color}>
+      <select
+        value={column}
+        onChange={(e) => data.onConfigChange?.(id, { column: e.target.value })}
+        className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1"
+      >
+        <option value="">Select column</option>
+        {data.columns.map((col) => (
+          <option key={col} value={col}>{col}</option>
+        ))}
+      </select>
+      <select
+        value={condition}
+        onChange={(e) => data.onConfigChange?.(id, { condition: e.target.value })}
+        className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1"
+      >
+        {FILTER_CONDITIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+      {condition !== 'not_null' && condition !== 'is_null' && (
+        <input
+          value={value}
+          onChange={(e) => data.onConfigChange?.(id, { value: e.target.value })}
+          placeholder="Value"
+          className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1"
+        />
+      )}
+      <div className="rounded bg-slate-800 px-2 py-1 text-slate-300">Will filter ~{estimatedRows.toLocaleString()} rows</div>
+      <Handle type="target" position={Position.Left} className="!bg-blue-400" />
+      <Handle type="source" position={Position.Right} className="!bg-blue-400" />
+    </NodeShell>
+  );
+}
+
+function TransformNode({ id, data }: NodeProps<PipelineNodeData>) {
+  const config = data.config;
+  const operation = String(config.operation ?? 'rename_column');
+  const column = String(config.column ?? '');
+  const newName = String(config.new_name ?? '');
+
+  return (
+    <NodeShell title="Transform" color={NODE_META.transform.color}>
+      <select
+        value={operation}
+        onChange={(e) => data.onConfigChange?.(id, { operation: e.target.value })}
+        className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1"
+      >
+        {TRANSFORM_OPS.map((opt) => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+      <select
+        value={column}
+        onChange={(e) => data.onConfigChange?.(id, { column: e.target.value })}
+        className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1"
+      >
+        <option value="">Select column</option>
+        {data.columns.map((col) => (
+          <option key={col} value={col}>{col}</option>
+        ))}
+      </select>
+      {operation === 'rename_column' && (
+        <input
+          value={newName}
+          onChange={(e) => data.onConfigChange?.(id, { new_name: e.target.value })}
+          placeholder="New column name"
+          className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1"
+        />
+      )}
+      <Handle type="target" position={Position.Left} className="!bg-emerald-400" />
+      <Handle type="source" position={Position.Right} className="!bg-emerald-400" />
+    </NodeShell>
+  );
+}
+
+function AggregateNode({ id, data }: NodeProps<PipelineNodeData>) {
+  const config = data.config;
+  const groupBy = String(config.group_by ?? '');
+  const aggregations = (config.aggregations as Record<string, AggregateFn>) ?? {};
+  const selected = Object.keys(aggregations);
+
+  return (
+    <NodeShell title="Aggregate" color={NODE_META.aggregate.color}>
+      <select
+        value={groupBy}
+        onChange={(e) => data.onConfigChange?.(id, { group_by: e.target.value })}
+        className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1"
+      >
+        <option value="">Group by column</option>
+        {data.columns.map((col) => (
+          <option key={col} value={col}>{col}</option>
+        ))}
+      </select>
+
+      <div className="max-h-32 space-y-1 overflow-auto rounded border border-slate-700 bg-slate-850 p-2">
+        {data.columns
+          .filter((col) => col !== groupBy)
+          .map((col) => {
+            const isChecked = selected.includes(col);
+            return (
+              <div key={col} className="space-y-1 rounded bg-slate-800 p-1">
+                <label className="flex items-center gap-2 text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={(e) => {
+                      const next = { ...aggregations };
+                      if (e.target.checked) {
+                        next[col] = 'sum';
+                      } else {
+                        delete next[col];
+                      }
+                      data.onConfigChange?.(id, { aggregations: next });
+                    }}
+                  />
+                  {col}
+                </label>
+                {isChecked && (
+                  <select
+                    value={aggregations[col]}
+                    onChange={(e) => {
+                      const next = { ...aggregations, [col]: e.target.value as AggregateFn };
+                      data.onConfigChange?.(id, { aggregations: next });
+                    }}
+                    className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1"
+                  >
+                    {AGG_OPS.map((fn) => (
+                      <option key={fn} value={fn}>{fn}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            );
+          })}
+      </div>
+
+      <Handle type="target" position={Position.Left} className="!bg-orange-400" />
+      <Handle type="source" position={Position.Right} className="!bg-orange-400" />
+    </NodeShell>
+  );
+}
+
+function OutputNode({ data }: NodeProps<PipelineNodeData>) {
+  const rows = (data.outputPreview ?? []).slice(0, 10);
+  const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
+
+  return (
+    <NodeShell title="Output" color={NODE_META.output.color}>
+      <div className="flex items-center justify-between">
+        <span className="text-slate-300">Preview</span>
+        <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-100">Rows: {data.outputRowCount ?? 0}</span>
+      </div>
+      <div className="max-h-36 overflow-auto rounded border border-slate-700">
+        {rows.length === 0 ? (
+          <div className="px-2 py-3 text-slate-400">Execute pipeline to preview rows</div>
+        ) : (
+          <table className="min-w-full text-[10px]">
+            <thead className="bg-slate-800 text-slate-300">
+              <tr>
+                {cols.map((col) => (
+                  <th key={col} className="px-2 py-1 text-left">{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => (
+                <tr key={idx} className="border-t border-slate-800">
+                  {cols.map((col) => (
+                    <td key={`${idx}-${col}`} className="px-2 py-1 text-slate-200">
+                      {String(row[col] ?? '')}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <button
+        onClick={data.onDownload}
+        disabled={!data.outputPreview?.length}
+        className="w-full rounded border border-red-500/40 bg-red-600/80 px-2 py-1 text-white disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Download CSV
+      </button>
+      <Handle type="target" position={Position.Left} className="!bg-red-400" />
+    </NodeShell>
+  );
+}
+
+export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBuilderProps) {
+  const { addNotification, setFileId, setFilename } = useGlobalContext();
+  const [nodes, setNodes, onNodesChange] = useNodesState<PipelineNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null);
+  const [savedPipelines, setSavedPipelines] = useState<StoredPipeline[]>([]);
+  const [selectedLoadKey, setSelectedLoadKey] = useState('');
+
   const nodeCountRef = useRef(0);
+  const profileRef = useRef<{ filename?: string; rowCount: number; colCount: number; columns: string[] }>({
+    filename: undefined,
+    rowCount: 0,
+    colCount: 0,
+    columns: [],
+  });
+
+  useEffect(() => {
+    if (onPipelineChange) onPipelineChange(nodes, edges);
+  }, [nodes, edges, onPipelineChange]);
+
+  useEffect(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') as StoredPipeline[];
+      setSavedPipelines(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setSavedPipelines([]);
+    }
+  }, []);
+
+  const updateNodeConfig = useCallback(
+    (nodeId: string, patch: Record<string, unknown>) => {
+      setNodes((curr) =>
+        curr.map((node) => {
+          if (node.id !== nodeId) return node;
+          const data = node.data as PipelineNodeData;
+          return {
+            ...node,
+            data: {
+              ...data,
+              config: {
+                ...data.config,
+                ...patch,
+              },
+            },
+          };
+        })
+      );
+    },
+    [setNodes]
+  );
+
+  const downloadResultCsv = useCallback(() => {
+    if (!executionResult?.download_url) {
+      addNotification('No pipeline result available for download', 'warning');
+      return;
+    }
+    window.open(`${API_BASE_URL}${executionResult.download_url}`, '_blank');
+  }, [executionResult, addNotification]);
+
+  const nodeTypes = useMemo(
+    () => ({
+      source: SourceNode,
+      filter: FilterNode,
+      transform: TransformNode,
+      aggregate: AggregateNode,
+      output: OutputNode,
+    }),
+    []
+  );
+
+  const hydrateNodes = useCallback(
+    (rawNodes: Node[]) => {
+      return rawNodes.map((node) => {
+        const oldData = (node.data || {}) as Partial<PipelineNodeData>;
+        const nodeType = (oldData.nodeType || node.type || 'transform') as NodeKind;
+        const meta = NODE_META[nodeType];
+
+        return {
+          ...node,
+          type: nodeType,
+          data: {
+            ...oldData,
+            label: meta.label,
+            nodeType,
+            color: meta.color,
+            config: oldData.config || defaultConfig(nodeType),
+            columns: profileRef.current.columns,
+            filename: profileRef.current.filename,
+            rowCount: profileRef.current.rowCount,
+            colCount: profileRef.current.colCount,
+            outputPreview: oldData.outputPreview || [],
+            onConfigChange: updateNodeConfig,
+            onDownload: downloadResultCsv,
+          } as PipelineNodeData,
+        } as Node<PipelineNodeData>;
+      });
+    },
+    [downloadResultCsv, updateNodeConfig]
+  );
+
+  useEffect(() => {
+    if (!fileId) return;
+
+    let active = true;
+    setIsProfileLoading(true);
+
+    getProfile(fileId)
+      .then((profile) => {
+        if (!active) return;
+
+        profileRef.current = {
+          filename: profile.filename,
+          rowCount: profile.row_count,
+          colCount: profile.col_count,
+          columns: profile.columns.map((c) => c.name),
+        };
+
+        setNodes((curr) =>
+          curr.map((node) => ({
+            ...node,
+            data: {
+              ...(node.data as PipelineNodeData),
+              filename: profile.filename,
+              rowCount: profile.row_count,
+              colCount: profile.col_count,
+              columns: profile.columns.map((c) => c.name),
+            },
+          }))
+        );
+      })
+      .catch((error) => {
+        addNotification(`Failed to load profile: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+      })
+      .finally(() => {
+        if (active) setIsProfileLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [fileId, setNodes, addNotification]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      setEdges((eds) => addEdge(connection, eds));
+      setEdges((eds) =>
+        addEdge(
+          {
+            ...connection,
+            animated: true,
+            style: { stroke: '#94a3b8', strokeWidth: 2 },
+          },
+          eds
+        )
+      );
     },
     [setEdges]
   );
 
   const addNode = useCallback(
-    (type: string) => {
+    (type: NodeKind) => {
       nodeCountRef.current += 1;
-      const nodeType = NODE_TYPES.find((t) => t.id === type);
-      if (!nodeType) return;
-
-      const newNode: Node = {
+      const meta = NODE_META[type];
+      const newNode: Node<PipelineNodeData> = {
         id: `${type}_${nodeCountRef.current}`,
-        type: 'default',
-        data: {
-          label: `${nodeType.label}`,
-          nodeType: type,
-          color: nodeType.color,
-        },
+        type,
         position: {
-          x: Math.random() * 600 + 50,
-          y: Math.random() * 400 + 50,
+          x: 120 + (nodeCountRef.current % 3) * 280,
+          y: 60 + Math.floor(nodeCountRef.current / 3) * 150,
+        },
+        data: {
+          label: meta.label,
+          nodeType: type,
+          color: meta.color,
+          config: defaultConfig(type),
+          filename: profileRef.current.filename,
+          rowCount: profileRef.current.rowCount,
+          colCount: profileRef.current.colCount,
+          columns: profileRef.current.columns,
+          outputPreview: [],
+          onConfigChange: updateNodeConfig,
+          onDownload: downloadResultCsv,
         },
       };
-      setNodes((nds) => [...nds, newNode]);
+      setNodes((curr) => [...curr, newNode]);
     },
-    [setNodes]
+    [setNodes, updateNodeConfig, downloadResultCsv]
   );
 
-  const executePipeline = async () => {
-    if (!fileId || nodes.length === 0) {
-      alert('Please upload a file and add nodes');
+  const saveToLocal = useCallback(() => {
+    if (nodes.length === 0) {
+      addNotification('Add at least one node before saving', 'warning');
+      return;
+    }
+
+    const name = window.prompt('Pipeline name');
+    if (!name) return;
+
+    const sanitizedNodes = nodes.map((node) => {
+      const data = node.data as PipelineNodeData;
+      const { onConfigChange: _a, onDownload: _b, ...serializable } = data;
+      return { ...node, data: serializable };
+    });
+
+    const next: StoredPipeline[] = [
+      {
+        id: `saved_${Date.now()}`,
+        name,
+        fileId,
+        nodes: sanitizedNodes,
+        edges,
+        createdAt: new Date().toISOString(),
+      },
+      ...savedPipelines,
+    ];
+
+    setSavedPipelines(next);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    addNotification('Pipeline saved locally', 'success');
+  }, [nodes, edges, fileId, savedPipelines, addNotification]);
+
+  const applyTemplate = useCallback(
+    (templateKey: string) => {
+      const templateNodes: Node[] = [];
+      const templateEdges: Edge[] = [];
+
+      if (templateKey === 'template:clean-nulls') {
+        templateNodes.push(
+          makeTemplateNode('source', { x: 60, y: 100 }),
+          makeTemplateNode('transform', { x: 360, y: 100 }, { operation: 'fill_nulls_zero' }),
+          makeTemplateNode('output', { x: 660, y: 100 })
+        );
+      } else if (templateKey === 'template:filter-export') {
+        templateNodes.push(
+          makeTemplateNode('source', { x: 60, y: 240 }),
+          makeTemplateNode('filter', { x: 360, y: 240 }),
+          makeTemplateNode('output', { x: 660, y: 240 })
+        );
+      } else if (templateKey === 'template:group-summary') {
+        templateNodes.push(
+          makeTemplateNode('source', { x: 60, y: 380 }),
+          makeTemplateNode('aggregate', { x: 360, y: 380 }),
+          makeTemplateNode('output', { x: 660, y: 380 })
+        );
+      }
+
+      if (templateNodes.length > 1) {
+        for (let i = 0; i < templateNodes.length - 1; i += 1) {
+          templateEdges.push({
+            id: `template-edge-${i}-${Date.now()}`,
+            source: templateNodes[i].id,
+            target: templateNodes[i + 1].id,
+            animated: true,
+            style: { stroke: '#94a3b8', strokeWidth: 2 },
+          });
+        }
+      }
+
+      setNodes(hydrateNodes(templateNodes));
+      setEdges(templateEdges);
+      addNotification('Template loaded', 'success');
+    },
+    [setNodes, setEdges, hydrateNodes, addNotification]
+  );
+
+  const loadSelectedPipeline = useCallback(() => {
+    if (!selectedLoadKey) return;
+
+    if (selectedLoadKey.startsWith('template:')) {
+      applyTemplate(selectedLoadKey);
+      return;
+    }
+
+    const selected = savedPipelines.find((p) => p.id === selectedLoadKey);
+    if (!selected) {
+      addNotification('Saved pipeline not found', 'error');
+      return;
+    }
+
+    setNodes(hydrateNodes(selected.nodes));
+    setEdges(selected.edges);
+    addNotification(`Loaded pipeline: ${selected.name}`, 'success');
+  }, [selectedLoadKey, savedPipelines, applyTemplate, setNodes, setEdges, hydrateNodes, addNotification]);
+
+  const execute = useCallback(async () => {
+    if (!fileId) {
+      addNotification('Upload a file first', 'warning');
+      return;
+    }
+    if (nodes.length === 0) {
+      addNotification('Add nodes to execute a pipeline', 'warning');
       return;
     }
 
     setIsExecuting(true);
+    setExecutionResult(null);
+
     try {
-      const { executePipeline: executeApi } = await import('@/lib/api');
-      const apiNodes = nodes.map((n) => ({
-        id: n.id,
-        type: (n.data as any).nodeType || 'transform',
-        label: (n.data as any).label,
-        config: { operation: 'default', parameters: {} },
+      const apiNodes = nodes.map((node) => {
+        const data = node.data as PipelineNodeData;
+        const config = data.config || {};
+        const operation = String(config.operation ?? data.nodeType);
+        return {
+          id: node.id,
+          type: data.nodeType,
+          label: data.label,
+          position: node.position,
+          config: {
+            operation,
+            parameters: config,
+          },
+        };
+      });
+
+      const apiEdges = edges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
       }));
-      const apiEdges = edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-      }));
-      const result = await executeApi(apiNodes, apiEdges, fileId);
-      alert('Pipeline executed successfully!');
+
+      const result = (await executePipeline(apiNodes, apiEdges, fileId)) as unknown as ExecutionResult;
+
+      if (!result.success) {
+        throw new Error(result.error || 'Pipeline execution failed');
+      }
+
+      setExecutionResult(result);
+
+      setNodes((curr) =>
+        curr.map((node) => {
+          const data = node.data as PipelineNodeData;
+          if (data.nodeType !== 'output') return node;
+          return {
+            ...node,
+            data: {
+              ...data,
+              outputPreview: result.preview.slice(0, 10),
+              outputRowCount: result.rows_after,
+            },
+          };
+        })
+      );
+
+      addNotification('Pipeline executed successfully', 'success');
     } catch (error) {
-      console.error('Execution failed:', error);
-      alert('Pipeline execution failed');
+      addNotification(`Execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     } finally {
       setIsExecuting(false);
     }
-  };
+  }, [fileId, nodes, edges, addNotification, setNodes]);
 
-  const savePipeline = async () => {
-    const name = prompt('Enter pipeline name:');
-    if (!name) return;
-
-    try {
-      const { savePipeline: saveApi } = await import('@/lib/api');
-      const apiNodes = nodes.map((n) => ({
-        id: n.id,
-        type: (n.data as any).nodeType || 'transform',
-        label: (n.data as any).label,
-        config: { operation: 'default', parameters: {} },
-        position: n.position,
-      }));
-      const apiEdges = edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-      }));
-      await saveApi(name, 'Custom Pipeline', fileId || '', apiNodes, apiEdges);
-      alert('Pipeline saved successfully!');
-    } catch (error) {
-      console.error('Save failed:', error);
-      alert('Pipeline save failed');
+  const saveAsNewDataset = useCallback(() => {
+    if (!executionResult?.cleaned_file_id) {
+      addNotification('Execute pipeline first', 'warning');
+      return;
     }
-  };
 
-  const nodeTypes = {
-    default: NodeComponent,
-  };
+    setFileId(executionResult.cleaned_file_id);
+    setFilename(`pipeline-result-${executionResult.cleaned_file_id.slice(0, 8)}.csv`);
+    addNotification('Saved as new active dataset', 'success');
+  }, [executionResult, setFileId, setFilename, addNotification]);
 
   return (
-    <div className="w-full h-full bg-slate-900 rounded-lg overflow-hidden border border-slate-800">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        nodeTypes={nodeTypes}
-        fitView
-      >
-        <Background color="#1e293b" gap={16} />
-        <Controls />
-
-        <Panel
-          position="top-left"
-          className="flex flex-col gap-2 bg-slate-800/95 p-3 rounded-lg border border-slate-700 backdrop-blur-sm"
-        >
-          <div className="text-sm font-semibold text-slate-100 mb-2">
-            Add Nodes
-          </div>
-          <div className="flex flex-col gap-2 max-w-xs">
-            {NODE_TYPES.map((nodeType) => (
+    <div className="space-y-4">
+      <div className="grid h-[720px] grid-cols-1 gap-4 lg:grid-cols-[250px_1fr]">
+        <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+          <h3 className="mb-2 text-sm font-semibold text-slate-100">Nodes</h3>
+          <div className="space-y-2">
+            {(Object.keys(NODE_META) as NodeKind[]).map((nodeType) => (
               <button
-                key={nodeType.id}
-                onClick={() => addNode(nodeType.id)}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white rounded-lg transition-all hover:scale-105"
-                style={{
-                  backgroundColor: nodeType.color,
-                  opacity: 0.85,
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.opacity = '1';
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.opacity = '0.85';
-                }}
+                key={nodeType}
+                onClick={() => addNode(nodeType)}
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-white"
+                style={{ backgroundColor: NODE_META[nodeType].color }}
               >
-                <Plus size={16} />
-                {nodeType.label}
+                <Plus size={14} /> {NODE_META[nodeType].label}
               </button>
             ))}
           </div>
-        </Panel>
 
-        <Panel position="top-right" className="flex gap-2">
-          <button
-            onClick={executePipeline}
-            disabled={isExecuting || nodes.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 text-white font-medium rounded-lg transition-colors"
-          >
-            <Play size={16} />
-            {isExecuting ? 'Executing...' : 'Execute'}
-          </button>
-          <button
-            onClick={savePipeline}
-            disabled={nodes.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-600 text-white font-medium rounded-lg transition-colors"
-          >
-            <Save size={16} />
-            Save
-          </button>
-        </Panel>
+          <div className="mt-4 space-y-2 border-t border-slate-800 pt-4">
+            <button
+              onClick={execute}
+              disabled={isExecuting || !fileId || nodes.length === 0}
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              <Play size={14} /> {isExecuting ? 'Executing...' : 'Execute'}
+            </button>
 
-        <Panel
-          position="bottom-left"
-          className="bg-slate-800/95 p-3 rounded-lg border border-slate-700 text-xs text-slate-300 backdrop-blur-sm"
-        >
-          <div className="font-semibold mb-2">Pipeline Stats</div>
-          <div>Nodes: {nodes.length}</div>
-          <div>Connections: {edges.length}</div>
-        </Panel>
-      </ReactFlow>
+            <button
+              onClick={saveToLocal}
+              disabled={nodes.length === 0}
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              <Save size={14} /> Save
+            </button>
+
+            <button
+              onClick={downloadResultCsv}
+              disabled={!executionResult?.download_url}
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              <Download size={14} /> Download CSV
+            </button>
+          </div>
+
+          <div className="mt-4 space-y-2 border-t border-slate-800 pt-4">
+            <select
+              value={selectedLoadKey}
+              onChange={(e) => setSelectedLoadKey(e.target.value)}
+              className="w-full rounded-md border border-slate-700 bg-slate-800 px-2 py-2 text-xs text-slate-100"
+            >
+              <option value="">Load saved/template</option>
+              <option value="template:clean-nulls">Template: Clean nulls</option>
+              <option value="template:filter-export">Template: Filter &amp; Export</option>
+              <option value="template:group-summary">Template: Group Summary</option>
+              {savedPipelines.map((pipeline) => (
+                <option key={pipeline.id} value={pipeline.id}>
+                  Saved: {pipeline.name}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={loadSelectedPipeline}
+              disabled={!selectedLoadKey}
+              className="w-full rounded-md bg-slate-700 px-3 py-2 text-xs font-semibold text-slate-100 disabled:opacity-50"
+            >
+              Load selection
+            </button>
+          </div>
+
+          <div className="mt-4 rounded-md bg-slate-800 p-2 text-xs text-slate-300">
+            {isProfileLoading ? 'Loading file profile...' : `Rows: ${profileRef.current.rowCount} | Cols: ${profileRef.current.colCount}`}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-800 bg-slate-900">
+          <ReactFlowProvider>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              nodeTypes={nodeTypes}
+              fitView
+              deleteKeyCode={['Backspace', 'Delete']}
+              className="bg-slate-950"
+            >
+              <Background color="#334155" gap={16} />
+              <Controls className="!bg-slate-800 !border !border-slate-700" />
+            </ReactFlow>
+          </ReactFlowProvider>
+        </div>
+      </div>
+
+      {executionResult && (
+        <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900 p-4">
+          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-200">
+            <span className="rounded bg-slate-800 px-2 py-1">Rows: {executionResult.rows_before} → {executionResult.rows_after}</span>
+            <span className="rounded bg-slate-800 px-2 py-1">Execution: {executionResult.execution_time_ms}ms</span>
+            <button
+              onClick={downloadResultCsv}
+              className="rounded bg-indigo-600 px-3 py-1 text-white"
+            >
+              Download cleaned CSV
+            </button>
+            <button
+              onClick={saveAsNewDataset}
+              className="rounded bg-emerald-600 px-3 py-1 text-white"
+            >
+              Save as new dataset
+            </button>
+          </div>
+
+          <div className="max-h-72 overflow-auto rounded border border-slate-800">
+            {executionResult.preview.length === 0 ? (
+              <div className="p-3 text-sm text-slate-400">No result rows</div>
+            ) : (
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-800 text-slate-300">
+                  <tr>
+                    {executionResult.columns.map((col) => (
+                      <th key={col} className="px-3 py-2 text-left">{col}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {executionResult.preview.map((row, idx) => (
+                    <tr key={idx} className="border-t border-slate-800">
+                      {executionResult.columns.map((col) => (
+                        <td key={`${idx}-${col}`} className="px-3 py-2 text-slate-200">
+                          {String(row[col] ?? '')}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function defaultConfig(type: NodeKind): Record<string, unknown> {
+  if (type === 'filter') return { column: '', condition: 'equals', value: '' };
+  if (type === 'transform') return { operation: 'rename_column', column: '', new_name: '' };
+  if (type === 'aggregate') return { group_by: '', aggregations: {} };
+  return { operation: type };
+}
+
+function makeTemplateNode(
+  nodeType: NodeKind,
+  position: { x: number; y: number },
+  configOverride: Record<string, unknown> = {}
+): Node {
+  const meta = NODE_META[nodeType];
+  return {
+    id: `${nodeType}_template_${Math.random().toString(36).slice(2, 9)}`,
+    type: nodeType,
+    position,
+    data: {
+      label: meta.label,
+      nodeType,
+      color: meta.color,
+      config: { ...defaultConfig(nodeType), ...configOverride },
+      outputPreview: [],
+      rowCount: 0,
+      colCount: 0,
+      columns: [],
+    },
+  };
 }

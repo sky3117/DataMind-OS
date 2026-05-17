@@ -166,8 +166,16 @@ export interface Pipeline {
 
 export interface PipelineExecutionResult {
   execution_id: string;
-  pipeline_id: string;
+  pipeline_id?: string;
+  success?: boolean;
   status: 'running' | 'completed' | 'failed';
+  rows_before?: number;
+  rows_after?: number;
+  preview?: Record<string, unknown>[];
+  columns?: string[];
+  cleaned_file_id?: string;
+  cleaned_filename?: string;
+  download_url?: string;
   output_data?: Record<string, unknown>[];
   row_count?: number;
   execution_time_ms: number;
@@ -342,4 +350,3 @@ export interface CollaborationState {
   activities: Activity[];
   cursor_positions: Record<string, { x: number; y: number }>;
 }
-
