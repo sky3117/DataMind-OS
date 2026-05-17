@@ -71,15 +71,18 @@ def _resolve_file(file_id: str) -> Path:
         raise HTTPException(status_code=400, detail="Invalid file ID")
 
     upload_root = Path(UPLOAD_DIR).resolve()
-    file_dir = (upload_root / file_id).resolve()
+    if not upload_root.exists() or not upload_root.is_dir():
+        raise HTTPException(status_code=404, detail="Upload directory not found")
+
+    matching_dirs = [p for p in upload_root.iterdir() if p.is_dir() and p.name == file_id]
+    if not matching_dirs:
+        raise HTTPException(status_code=404, detail="File not found")
+    file_dir = matching_dirs[0]
 
     try:
-        file_dir.relative_to(upload_root)
+        file_dir.resolve().relative_to(upload_root)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid file ID")
-
-    if not file_dir.exists() or not file_dir.is_dir():
-        raise HTTPException(status_code=404, detail="File not found")
 
     files = [p for p in file_dir.iterdir() if p.is_file()]
     if not files:
@@ -212,7 +215,7 @@ async def list_saved_pipelines(file_id: Optional[str] = None):
         }
     except Exception as exc:
         logger.error(f"Error listing pipelines: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to list pipelines")
 
 
 @router.post("/pipeline/save")
@@ -246,4 +249,4 @@ async def save_pipeline(request: PipelineSaveRequest):
 
     except Exception as exc:
         logger.error(f"Error saving pipeline: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to save pipeline")
