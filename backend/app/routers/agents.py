@@ -7,6 +7,7 @@ from app.config import UPLOAD_DIR
 import pandas as pd
 import logging
 import os
+import re
 
 from app.services.agents.cleaner import CleanerAgent
 from app.services.agents.analyst import AnalystAgent
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 REPORTS_DIR = os.getenv("REPORTS_DIR", "./reports")
+_SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 # ---------------------------------------------------------------------------
@@ -71,19 +73,27 @@ class PredictorPredictRequest(BaseModel):
 
 def _resolve_file(file_id: str):
     """Return (file_dir: Path, file_path: Path) or raise HTTPException."""
-    if ".." in file_id or "/" in file_id or "\\" in file_id:
+    if not _SAFE_ID_PATTERN.fullmatch(file_id):
         raise HTTPException(status_code=400, detail="Invalid file ID")
 
-    file_dir = Path(UPLOAD_DIR) / file_id
+    base_upload_dir = Path(UPLOAD_DIR).resolve()
+    if not base_upload_dir.exists():
+        raise HTTPException(status_code=404, detail="Upload directory not found")
+
+    matching_dirs = [p for p in base_upload_dir.iterdir() if p.is_dir() and p.name == file_id]
+    if not matching_dirs:
+        raise HTTPException(status_code=404, detail="File not found")
+    file_dir = matching_dirs[0]
+
     try:
-        file_dir.resolve().relative_to(Path(UPLOAD_DIR).resolve())
+        file_dir.resolve().relative_to(base_upload_dir)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid file ID")
 
     if not file_dir.exists():
         raise HTTPException(status_code=404, detail="File not found")
 
-    files = list(file_dir.iterdir())
+    files = [p for p in file_dir.iterdir() if p.is_file()]
     if not files:
         raise HTTPException(status_code=404, detail="No files found")
 
@@ -209,9 +219,14 @@ async def generate_report(request: ReporterGenerateRequest):
 @router.get("/reports/{report_id}", response_class=HTMLResponse)
 async def get_report(report_id: str):
     """Serve a generated HTML report."""
-    if ".." in report_id or "/" in report_id or "\\" in report_id:
+    if not _SAFE_ID_PATTERN.fullmatch(report_id):
         raise HTTPException(status_code=400, detail="Invalid report ID")
-    report_path = Path(REPORTS_DIR) / f"{report_id}.html"
+    reports_root = Path(REPORTS_DIR).resolve()
+    report_path = (reports_root / f"{report_id}.html").resolve()
+    try:
+        report_path.relative_to(reports_root)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid report ID")
     if not report_path.exists():
         raise HTTPException(status_code=404, detail="Report not found")
     return HTMLResponse(content=report_path.read_text(encoding="utf-8"))

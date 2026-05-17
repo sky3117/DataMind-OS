@@ -24,6 +24,13 @@ logger = logging.getLogger(__name__)
 REPORTS_DIR = os.getenv("REPORTS_DIR", "./reports")
 
 
+def _get_reports_root() -> Path:
+    """Resolve and ensure reports directory exists."""
+    reports_root = Path(REPORTS_DIR).resolve()
+    reports_root.mkdir(parents=True, exist_ok=True)
+    return reports_root
+
+
 def _df_to_html_table(df: pd.DataFrame, max_rows: int = 5) -> str:
     """Render a small dataframe as an HTML table."""
     return df.head(max_rows).to_html(
@@ -173,8 +180,8 @@ class ReporterAgent:
         include_charts: bool = True,
     ) -> Dict[str, Any]:
         """Generate an HTML report and save it to the reports directory."""
-        os.makedirs(REPORTS_DIR, exist_ok=True)
-        report_id = f"report_{file_id}_{uuid.uuid4().hex[:8]}"
+        reports_root = _get_reports_root()
+        report_id = f"report_{uuid.uuid4().hex[:12]}"
         title = title or "Data Analysis Report"
         generated_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
@@ -247,7 +254,11 @@ class ReporterAgent:
             sample_table=sample_table,
         )
 
-        report_path = Path(REPORTS_DIR) / f"{report_id}.html"
+        report_path = (reports_root / f"{report_id}.html").resolve()
+        try:
+            report_path.relative_to(reports_root)
+        except ValueError:
+            raise ValueError("Invalid report output path")
         report_path.write_text(html, encoding="utf-8")
 
         return {
