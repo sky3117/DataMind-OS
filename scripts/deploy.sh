@@ -7,6 +7,7 @@ GIT_REMOTE="${GIT_REMOTE:-origin}"
 GIT_BRANCH="${GIT_BRANCH:-main}"
 HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-180}"
 HEALTH_POLL_INTERVAL_SECONDS="${HEALTH_POLL_INTERVAL_SECONDS:-5}"
+OTHER_BUILD_SERVICES="${OTHER_BUILD_SERVICES:-backend nginx}"
 PRESERVE_PATTERNS=(
   ".env"
   ".env.*"
@@ -90,18 +91,35 @@ log "INFO" "Building frontend image with no cache to prevent stale Next.js artif
 docker compose -f "${COMPOSE_FILE}" build --no-cache frontend
 log "INFO" "Frontend image rebuild completed."
 
-log "INFO" "Building remaining application images."
-docker compose -f "${COMPOSE_FILE}" build backend nginx
+log "INFO" "Building remaining application images: ${OTHER_BUILD_SERVICES}."
+docker compose -f "${COMPOSE_FILE}" build ${OTHER_BUILD_SERVICES}
 
-log "INFO" "Starting core services from rebuilt images."
-docker compose -f "${COMPOSE_FILE}" up -d postgres redis backend
+mapfile -t all_services < <(docker compose -f "${COMPOSE_FILE}" config --services)
+core_services=()
+start_nginx=false
+for service in "${all_services[@]}"; do
+  if [ "${service}" = "nginx" ]; then
+    start_nginx=true
+    continue
+  fi
+  if [ "${service}" != "frontend" ]; then
+    core_services+=("${service}")
+  fi
+done
+
+if [ "${#core_services[@]}" -gt 0 ]; then
+  log "INFO" "Starting core services from rebuilt images: ${core_services[*]}."
+  docker compose -f "${COMPOSE_FILE}" up -d "${core_services[@]}"
+fi
 
 log "INFO" "Forcing frontend container recreation from freshly built image."
 docker compose -f "${COMPOSE_FILE}" up -d --force-recreate frontend
 log "INFO" "Frontend container recreated successfully."
 
-log "INFO" "Starting edge services."
-docker compose -f "${COMPOSE_FILE}" up -d nginx
+if [ "${start_nginx}" = true ]; then
+  log "INFO" "Starting edge services: nginx."
+  docker compose -f "${COMPOSE_FILE}" up -d nginx
+fi
 
 expected_services="$(docker compose -f "${COMPOSE_FILE}" config --services | wc -l | tr -d ' ')"
 running_services="$(docker compose -f "${COMPOSE_FILE}" ps --services --filter=status=running | wc -l | tr -d ' ')"
