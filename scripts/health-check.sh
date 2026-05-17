@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-/home/ubuntu/DataMind-OS}"
 COMPOSE_FILE="${COMPOSE_FILE:-${PROJECT_DIR}/docker-compose.yml}"
 ALERT_WEBHOOK_URL="${ALERT_WEBHOOK_URL:-}"
+POSTGRES_USER="${POSTGRES_USER:-datamind}"
 
 alert() {
   local message="$1"
@@ -40,7 +41,7 @@ for url in "http://localhost/" "http://localhost/api"; do
 done
 
 echo "Checking database connectivity..."
-if ! docker compose -f "${COMPOSE_FILE}" exec -T postgres pg_isready -U datamind >/dev/null; then
+if ! docker compose -f "${COMPOSE_FILE}" exec -T postgres pg_isready -U "${POSTGRES_USER}" >/dev/null; then
   alert "Database connection check failed"
   exit 1
 fi
