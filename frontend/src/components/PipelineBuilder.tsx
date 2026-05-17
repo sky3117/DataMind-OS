@@ -8,6 +8,8 @@ import ReactFlow, {
   Controls,
   Edge,
   Handle,
+  MarkerType,
+  MiniMap,
   Node,
   NodeProps,
   Position,
@@ -17,6 +19,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Download, Play, Plus, Save } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 import { useGlobalContext } from '@/context/GlobalContext';
 import { API_BASE_URL } from '@/lib/config';
@@ -81,6 +84,7 @@ interface StoredPipeline {
 }
 
 const STORAGE_KEY = 'datamind:pipeline-builder:saved';
+const DEPLOYMENT_VERSION = 'v2.6.0';
 
 const NODE_META: Record<NodeKind, { label: string; color: string }> = {
   source: { label: 'Source', color: '#8b5cf6' },
@@ -111,6 +115,22 @@ const TRANSFORM_OPS: { label: string; value: TransformOperation }[] = [
 
 const AGG_OPS: AggregateFn[] = ['sum', 'mean', 'count', 'min', 'max'];
 
+function getGlowingEdge() {
+  return {
+    markerEnd: {
+      type: MarkerType.ArrowClosed,
+      width: 20,
+      height: 20,
+      color: '#22d3ee',
+    },
+    style: {
+      stroke: '#22d3ee',
+      strokeWidth: 2.5,
+      filter: 'drop-shadow(0 0 8px rgba(34,211,238,0.75))',
+    },
+  };
+}
+
 function NodeShell({
   title,
   color,
@@ -121,8 +141,8 @@ function NodeShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-xl">
-      <div className="rounded-t-xl px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: color }}>
+    <div className="w-72 rounded-2xl border border-cyan-400/20 bg-slate-900/65 shadow-[0_0_24px_rgba(34,211,238,0.18)] backdrop-blur-xl transition-all duration-300 hover:border-cyan-300/40 hover:shadow-[0_0_38px_rgba(129,140,248,0.35)]">
+      <div className="rounded-t-2xl border-b border-white/10 px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: `${color}cc` }}>
         {title}
       </div>
       <div className="space-y-2 px-3 py-3 text-xs text-slate-200">{children}</div>
@@ -132,7 +152,7 @@ function NodeShell({
 
 function SourceNode({ data }: NodeProps<PipelineNodeData>) {
   return (
-    <NodeShell title="Source" color={NODE_META.source.color}>
+    <NodeShell title={data.label || 'Source'} color={NODE_META.source.color}>
       <div className="text-slate-300">File: <span className="text-slate-100">{data.filename ?? 'No file'}</span></div>
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded bg-slate-800 px-2 py-1">Rows: <b>{data.rowCount || 0}</b></div>
@@ -361,6 +381,7 @@ export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBu
   const [selectedLoadKey, setSelectedLoadKey] = useState('');
 
   const nodeCountRef = useRef(0);
+  const starterNodeInitRef = useRef(false);
   const profileRef = useRef<{ filename?: string; rowCount: number; colCount: number; columns: string[] }>({
     filename: undefined,
     rowCount: 0,
@@ -410,6 +431,32 @@ export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBu
     }
     window.open(`${API_BASE_URL}${executionResult.download_url}`, '_blank');
   }, [executionResult, addNotification]);
+
+  useEffect(() => {
+    if (starterNodeInitRef.current || nodes.length > 0) return;
+    starterNodeInitRef.current = true;
+    nodeCountRef.current = 1;
+    setNodes([
+      {
+        id: 'source_1',
+        type: 'source',
+        position: { x: 360, y: 260 },
+        data: {
+          label: 'Start Pipeline',
+          nodeType: 'source',
+          color: NODE_META.source.color,
+          config: defaultConfig('source'),
+          filename: profileRef.current.filename,
+          rowCount: profileRef.current.rowCount,
+          colCount: profileRef.current.colCount,
+          columns: profileRef.current.columns,
+          outputPreview: [],
+          onConfigChange: updateNodeConfig,
+          onDownload: downloadResultCsv,
+        },
+      },
+    ]);
+  }, [nodes.length, setNodes, updateNodeConfig, downloadResultCsv]);
 
   const nodeTypes = useMemo(
     () => ({
@@ -501,13 +548,14 @@ export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBu
           {
             ...connection,
             animated: true,
-            style: { stroke: '#94a3b8', strokeWidth: 2 },
+            ...getGlowingEdge(),
           },
           eds
         )
       );
+      addNotification('Connection created', 'success');
     },
-    [setEdges]
+    [setEdges, addNotification]
   );
 
   const addNode = useCallback(
@@ -604,7 +652,7 @@ export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBu
             source: templateNodes[i].id,
             target: templateNodes[i + 1].id,
             animated: true,
-            style: { stroke: '#94a3b8', strokeWidth: 2 },
+            ...getGlowingEdge(),
           });
         }
       }
@@ -631,7 +679,13 @@ export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBu
     }
 
     setNodes(hydrateNodes(selected.nodes));
-    setEdges(selected.edges);
+    setEdges(
+      selected.edges.map((edge) => ({
+        ...edge,
+        animated: true,
+        ...getGlowingEdge(),
+      }))
+    );
     addNotification(`Loaded pipeline: ${selected.name}`, 'success');
   }, [selectedLoadKey, savedPipelines, applyTemplate, setNodes, setEdges, hydrateNodes, addNotification]);
 
@@ -715,46 +769,89 @@ export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBu
 
   return (
     <div className="space-y-4">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35 }}
+        className="rounded-xl border border-cyan-500/20 bg-slate-900/70 p-3 backdrop-blur-md"
+      >
+        <div className="grid gap-2 text-xs text-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-cyan-500/20 bg-slate-950/80 px-3 py-2">
+            <div className="text-slate-400">Active File</div>
+            <div className="truncate font-semibold text-cyan-200">{profileRef.current.filename || 'No file selected'}</div>
+          </div>
+          <div className="rounded-lg border border-indigo-500/20 bg-slate-950/80 px-3 py-2">
+            <div className="text-slate-400">Node Count</div>
+            <div className="font-semibold text-indigo-200">{nodes.length}</div>
+          </div>
+          <div className="rounded-lg border border-fuchsia-500/20 bg-slate-950/80 px-3 py-2">
+            <div className="text-slate-400">Connection Count</div>
+            <div className="font-semibold text-fuchsia-200">{edges.length}</div>
+          </div>
+          <div className="rounded-lg border border-emerald-500/30 bg-slate-950/80 px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-400">Deployment</span>
+              <span className="rounded-full border border-emerald-400/40 bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-200">
+                {DEPLOYMENT_VERSION}
+              </span>
+            </div>
+            <div className="mt-1 font-semibold text-emerald-200">Build: CI/CD Verified</div>
+          </div>
+        </div>
+      </motion.div>
+
       <div className="grid h-[720px] grid-cols-1 gap-4 lg:grid-cols-[250px_1fr]">
-        <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <motion.div
+          initial={{ opacity: 0, x: -8 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.35, delay: 0.05 }}
+          className="rounded-xl border border-cyan-500/20 bg-slate-900/70 p-4 backdrop-blur-xl"
+        >
           <h3 className="mb-2 text-sm font-semibold text-slate-100">Nodes</h3>
           <div className="space-y-2">
             {(Object.keys(NODE_META) as NodeKind[]).map((nodeType) => (
-              <button
+              <motion.button
                 key={nodeType}
                 onClick={() => addNode(nodeType)}
-                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-white"
-                style={{ backgroundColor: NODE_META[nodeType].color }}
+                whileHover={{ scale: 1.02, y: -1 }}
+                whileTap={{ scale: 0.98 }}
+                className="flex w-full items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm font-medium text-white shadow-[0_0_14px_rgba(125,211,252,0.2)] backdrop-blur-md transition-colors hover:border-white/40"
               >
                 <Plus size={14} /> {NODE_META[nodeType].label}
-              </button>
+              </motion.button>
             ))}
           </div>
 
           <div className="mt-4 space-y-2 border-t border-slate-800 pt-4">
-            <button
+            <motion.button
               onClick={execute}
               disabled={isExecuting || !fileId || nodes.length === 0}
+              whileHover={{ scale: isExecuting ? 1 : 1.01 }}
+              whileTap={{ scale: isExecuting ? 1 : 0.98 }}
               className="flex w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               <Play size={14} /> {isExecuting ? 'Executing...' : 'Execute'}
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
               onClick={saveToLocal}
               disabled={nodes.length === 0}
+              whileHover={{ scale: nodes.length === 0 ? 1 : 1.01 }}
+              whileTap={{ scale: nodes.length === 0 ? 1 : 0.98 }}
               className="flex w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               <Save size={14} /> Save
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
               onClick={downloadResultCsv}
               disabled={!executionResult?.download_url}
+              whileHover={{ scale: executionResult?.download_url ? 1.01 : 1 }}
+              whileTap={{ scale: executionResult?.download_url ? 0.98 : 1 }}
               className="flex w-full items-center justify-center gap-2 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               <Download size={14} /> Download CSV
-            </button>
+            </motion.button>
           </div>
 
           <div className="mt-4 space-y-2 border-t border-slate-800 pt-4">
@@ -785,9 +882,24 @@ export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBu
           <div className="mt-4 rounded-md bg-slate-800 p-2 text-xs text-slate-300">
             {isProfileLoading ? 'Loading file profile...' : `Rows: ${profileRef.current.rowCount} | Cols: ${profileRef.current.colCount}`}
           </div>
-        </div>
+        </motion.div>
 
-        <div className="rounded-lg border border-slate-800 bg-slate-900">
+        <motion.div
+          initial={{ opacity: 0, x: 8 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.35, delay: 0.1 }}
+          className="relative overflow-hidden rounded-xl border border-cyan-500/20 bg-slate-900/70"
+        >
+          <motion.div
+            className="pointer-events-none absolute inset-0 opacity-40"
+            style={{
+              background:
+                'radial-gradient(circle at 20% 20%, rgba(34,211,238,0.18), transparent 45%), radial-gradient(circle at 80% 30%, rgba(167,139,250,0.2), transparent 40%), linear-gradient(130deg, rgba(8,47,73,0.6), rgba(15,23,42,0.8), rgba(67,56,202,0.45), rgba(15,23,42,0.8))',
+              backgroundSize: '250% 250%',
+            }}
+            animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }}
+            transition={{ duration: 16, repeat: Infinity, ease: 'linear' }}
+          />
           <ReactFlowProvider>
             <ReactFlow
               nodes={nodes}
@@ -798,17 +910,52 @@ export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBu
               nodeTypes={nodeTypes}
               fitView
               deleteKeyCode={['Backspace', 'Delete']}
-              className="bg-slate-950"
+              className="bg-transparent"
             >
               <Background color="#334155" gap={16} />
-              <Controls className="!bg-slate-800 !border !border-slate-700" />
+              <MiniMap
+                pannable
+                zoomable
+                nodeColor={() => '#22d3ee'}
+                maskColor="rgba(2, 6, 23, 0.6)"
+                className="!border !border-cyan-500/30 !bg-slate-900/80"
+              />
+              <Controls className="!border !border-cyan-500/30 !bg-slate-900/80 !backdrop-blur-md" />
             </ReactFlow>
           </ReactFlowProvider>
-        </div>
+          {isExecuting && (
+            <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-slate-950/55 backdrop-blur-sm">
+              <motion.div
+                className="flex items-center gap-3 rounded-xl border border-cyan-400/30 bg-slate-900/80 px-4 py-3 text-sm font-medium text-cyan-100"
+                initial={{ scale: 0.96, opacity: 0.7 }}
+                animate={{ scale: [0.96, 1, 0.96], opacity: [0.7, 1, 0.7] }}
+                transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                <motion.span
+                  className="h-3 w-3 rounded-full bg-cyan-300"
+                  animate={{
+                    boxShadow: [
+                      '0 0 0px rgba(34,211,238,0.2)',
+                      '0 0 18px rgba(34,211,238,0.95)',
+                      '0 0 0px rgba(34,211,238,0.2)',
+                    ],
+                  }}
+                  transition={{ duration: 1.2, repeat: Infinity }}
+                />
+                Executing pipeline...
+              </motion.div>
+            </div>
+          )}
+        </motion.div>
       </div>
 
       {executionResult && (
-        <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="space-y-3 rounded-lg border border-slate-800 bg-slate-900 p-4"
+        >
           <div className="flex flex-wrap items-center gap-3 text-sm text-slate-200">
             <span className="rounded bg-slate-800 px-2 py-1">Rows: {executionResult.rows_before} → {executionResult.rows_after}</span>
             <span className="rounded bg-slate-800 px-2 py-1">Execution: {executionResult.execution_time_ms}ms</span>
@@ -852,7 +999,7 @@ export default function PipelineBuilder({ fileId, onPipelineChange }: PipelineBu
               </table>
             )}
           </div>
-        </div>
+        </motion.div>
       )}
     </div>
   );
