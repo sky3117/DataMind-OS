@@ -93,12 +93,15 @@ log "INFO" "Frontend image rebuild completed."
 log "INFO" "Building remaining application images."
 docker compose -f "${COMPOSE_FILE}" build backend nginx
 
-log "INFO" "Starting containers from rebuilt images."
-docker compose -f "${COMPOSE_FILE}" up -d
+log "INFO" "Starting core services from rebuilt images."
+docker compose -f "${COMPOSE_FILE}" up -d postgres redis backend
 
 log "INFO" "Forcing frontend container recreation from freshly built image."
 docker compose -f "${COMPOSE_FILE}" up -d --force-recreate frontend
 log "INFO" "Frontend container recreated successfully."
+
+log "INFO" "Starting edge services."
+docker compose -f "${COMPOSE_FILE}" up -d nginx
 
 expected_services="$(docker compose -f "${COMPOSE_FILE}" config --services | wc -l | tr -d ' ')"
 running_services="$(docker compose -f "${COMPOSE_FILE}" ps --services --filter=status=running | wc -l | tr -d ' ')"
