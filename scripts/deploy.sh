@@ -97,7 +97,7 @@ log "INFO" "Starting containers from rebuilt images."
 docker compose -f "${COMPOSE_FILE}" up -d
 
 log "INFO" "Forcing frontend container recreation from freshly built image."
-docker compose -f "${COMPOSE_FILE}" up -d --no-deps --force-recreate frontend
+docker compose -f "${COMPOSE_FILE}" up -d --force-recreate frontend
 log "INFO" "Frontend container recreated successfully."
 
 expected_services="$(docker compose -f "${COMPOSE_FILE}" config --services | wc -l | tr -d ' ')"
