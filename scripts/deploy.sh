@@ -34,11 +34,12 @@ trap on_error ERR
 wait_for_container_health() {
   local container_id="$1"
   local deadline=$((SECONDS + HEALTH_TIMEOUT_SECONDS))
-  local container_name status health
+  local container_name status health inspect_err
 
   container_name="$(docker inspect --format '{{.Name}}' "${container_id}" 2>/dev/null | sed 's#^/##')"
 
   while [ "${SECONDS}" -lt "${deadline}" ]; do
+    inspect_err="$(docker inspect "${container_id}" >/dev/null 2>&1 || echo 'inspect_failed')"
     status="$(docker inspect --format '{{.State.Status}}' "${container_id}" 2>/dev/null || echo 'missing')"
     health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}" 2>/dev/null || echo 'missing')"
 
@@ -52,6 +53,9 @@ wait_for_container_health() {
     fi
 
     if [ "${health}" = "unhealthy" ] || [ "${health}" = "missing" ]; then
+      if [ "${inspect_err}" = "inspect_failed" ]; then
+        log "ERROR" "docker inspect failed for ${container_name} (${container_id})."
+      fi
       fail "Container ${container_name} health check failed (health=${health})."
     fi
 
@@ -90,17 +94,17 @@ log "INFO" "Starting containers with rebuild."
 docker compose -f "${COMPOSE_FILE}" up -d --build
 
 expected_services="$(docker compose -f "${COMPOSE_FILE}" config --services | wc -l | tr -d ' ')"
-running_services="$(docker compose -f "${COMPOSE_FILE}" ps --services --filter status=running | wc -l | tr -d ' ')"
+running_services="$(docker compose -f "${COMPOSE_FILE}" ps --services --filter=status=running | wc -l | tr -d ' ')"
 if [ "${running_services}" -lt "${expected_services}" ]; then
   docker compose -f "${COMPOSE_FILE}" ps
   fail "Not all services are running after startup (${running_services}/${expected_services})."
 fi
 
 log "INFO" "Validating health status of running containers."
-container_ids="$(docker compose -f "${COMPOSE_FILE}" ps -q --status running)"
-[ -n "${container_ids}" ] || fail "No running containers were found after deployment."
+mapfile -t container_ids < <(docker compose -f "${COMPOSE_FILE}" ps -q --filter=status=running)
+[ "${#container_ids[@]}" -gt 0 ] || fail "No running containers were found after deployment."
 
-for container_id in ${container_ids}; do
+for container_id in "${container_ids[@]}"; do
   wait_for_container_health "${container_id}"
 done
 
