@@ -222,12 +222,11 @@ async def get_report(report_id: str):
     if not _SAFE_ID_PATTERN.fullmatch(report_id):
         raise HTTPException(status_code=400, detail="Invalid report ID")
     reports_root = Path(REPORTS_DIR).resolve()
-    report_path = (reports_root / f"{report_id}.html").resolve()
-    try:
-        report_path.relative_to(reports_root)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid report ID")
-    if not report_path.exists():
+    report_path = next(
+        (p for p in reports_root.glob("*.html") if p.is_file() and p.stem == report_id),
+        None,
+    )
+    if report_path is None or not report_path.exists():
         raise HTTPException(status_code=404, detail="Report not found")
     return HTMLResponse(content=report_path.read_text(encoding="utf-8"))
 
